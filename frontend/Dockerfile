@@ -1,13 +1,13 @@
-# Build stage
-FROM node:18-alpine AS build
+# Build stage - Node 20 required for react-router-dom 7.x
+FROM node:20-alpine AS build
 
 WORKDIR /app
 
 # Copy package files
 COPY package.json ./
 
-# Install dependencies (without frozen lockfile since yarn.lock might not exist)
-RUN yarn install
+# Install dependencies with legacy peer deps to avoid conflicts
+RUN yarn install --ignore-engines
 
 # Copy source files
 COPY . .
