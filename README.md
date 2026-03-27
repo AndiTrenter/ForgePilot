@@ -14,44 +14,59 @@ Ein lokales AI-Entwicklungssystem für Unraid. Erstelle Software-Projekte per Ch
 
 ## Installation auf Unraid
 
-### Voraussetzungen
+### Option 1: Vorgebaute Docker Images (Empfohlen)
 
-- Unraid 6.x oder höher
-- Docker und Docker Compose
-- OpenAI API Key (oder Ollama für lokale LLMs)
-
-### Schnellstart
+Nach dem Push zu GitHub werden die Docker Images automatisch gebaut.
 
 1. **Repository klonen:**
    ```bash
-   git clone https://github.com/your-username/forgepilot.git
+   git clone https://github.com/YOUR_USERNAME/forgepilot.git
    cd forgepilot
    ```
 
 2. **Environment-Variablen konfigurieren:**
    ```bash
-   cp backend/.env.example backend/.env
-   # Bearbeite backend/.env und füge deinen OpenAI API Key ein
+   cp .env.example .env
+   nano .env  # Füge deinen OpenAI API Key ein
    ```
 
-3. **Docker Container starten:**
+3. **docker-compose.unraid.yml anpassen:**
    ```bash
-   docker-compose up -d
+   # Ersetze YOUR_GITHUB_USERNAME mit deinem GitHub Benutzernamen
+   sed -i 's/YOUR_GITHUB_USERNAME/dein-username/g' docker-compose.unraid.yml
    ```
 
-4. **Öffne ForgePilot:**
-   - Frontend: http://localhost:3000
-   - Backend API: http://localhost:8001
+4. **Docker Container starten:**
+   ```bash
+   docker-compose -f docker-compose.unraid.yml up -d
+   ```
 
-### Unraid Community Applications
+### Option 2: Lokal bauen
 
-Alternativ kannst du ForgePilot über die Unraid Community Applications installieren:
+```bash
+git clone https://github.com/YOUR_USERNAME/forgepilot.git
+cd forgepilot
+cp .env.example .env
+# OPENAI_API_KEY eintragen
+docker-compose up -d --build
+```
 
-1. Öffne "Apps" in Unraid
-2. Suche nach "ForgePilot"
-3. Klicke "Install"
-4. Konfiguriere deinen OpenAI API Key
-5. Fertig!
+### Zugriff
+
+- **Frontend:** http://YOUR_UNRAID_IP:3000
+- **Backend API:** http://YOUR_UNRAID_IP:8001
+
+### GitHub Actions
+
+Bei jedem Push zu `main` werden automatisch Docker Images gebaut:
+- `ghcr.io/YOUR_USERNAME/forgepilot/forgepilot-backend:latest`
+- `ghcr.io/YOUR_USERNAME/forgepilot/forgepilot-frontend:latest`
+
+Für ein Release mit Version-Tag:
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
 
 ## Tastaturkürzel
 
