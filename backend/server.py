@@ -1,5 +1,5 @@
-from fastapi import FastAPI, APIRouter, HTTPException, WebSocket, WebSocketDisconnect
-from fastapi.responses import StreamingResponse
+from fastapi import FastAPI, APIRouter, HTTPException, WebSocket, WebSocketDisconnect, Query, Body
+from fastapi.responses import StreamingResponse, FileResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -16,6 +16,8 @@ from openai import AsyncOpenAI
 import git
 import shutil
 import aiofiles
+import subprocess
+import re
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -53,7 +55,7 @@ logger = logging.getLogger(__name__)
 class ProjectCreate(BaseModel):
     name: str
     description: Optional[str] = ""
-    project_type: str = "fullstack"  # fullstack, mobile, landing
+    project_type: str = "fullstack"
 
 class Project(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -66,6 +68,7 @@ class Project(BaseModel):
     updated_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     status: str = "active"
     workspace_path: Optional[str] = None
+    preview_port: Optional[int] = None
 
 class MessageCreate(BaseModel):
     project_id: str
@@ -80,13 +83,15 @@ class Message(BaseModel):
     role: str
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     agent_type: Optional[str] = None
+    files_created: Optional[List[str]] = None
+    files_modified: Optional[List[str]] = None
 
 class AgentStatus(BaseModel):
     model_config = ConfigDict(extra="ignore")
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     project_id: str
-    agent_type: str  # orchestrator, planner, coder, reviewer, tester, debugger, git
-    status: str = "idle"  # idle, running, completed, error
+    agent_type: str
+    status: str = "idle"
     message: Optional[str] = None
     started_at: Optional[str] = None
     completed_at: Optional[str] = None
@@ -107,17 +112,338 @@ class RoadmapItem(BaseModel):
     project_id: str
     title: str
     description: str
-    status: str = "pending"  # pending, in_progress, completed
+    status: str = "pending"
     order: int = 0
 
 class LogEntry(BaseModel):
     model_config = ConfigDict(extra="ignore")
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     project_id: str
-    level: str  # info, warning, error, success
+    level: str
     message: str
     source: str = "system"
     timestamp: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+class FileContent(BaseModel):
+    path: str
+    content: str
+
+class FileCreate(BaseModel):
+    path: str
+    content: str
+
+# ============== HELPER FUNCTIONS ==============
+
+async def add_log(project_id: str, level: str, message: str, source: str = "system"):
+    """Helper to add log entries"""
+    log = LogEntry(project_id=project_id, level=level, message=message, source=source)
+    await db.logs.insert_one(log.model_dump())
+    return log
+
+async def update_agent(project_id: str, agent_type: str, status: str, message: str = None):
+    """Helper to update agent status"""
+    update_data = {"status": status, "message": message}
+    if status == "running":
+        update_data["started_at"] = datetime.now(timezone.utc).isoformat()
+        update_data["completed_at"] = None
+    elif status in ["completed", "error", "idle"]:
+        update_data["completed_at"] = datetime.now(timezone.utc).isoformat()
+    
+    await db.agent_status.update_one(
+        {"project_id": project_id, "agent_type": agent_type},
+        {"$set": update_data},
+        upsert=True
+    )
+
+def get_file_tree(workspace_path: Path, prefix: str = "") -> List[Dict]:
+    """Get file tree structure"""
+    items = []
+    try:
+        for item in sorted(workspace_path.iterdir(), key=lambda x: (x.is_file(), x.name.lower())):
+            if item.name.startswith('.') or item.name in ['node_modules', '__pycache__', 'venv', '.git']:
+                continue
+            
+            rel_path = f"{prefix}/{item.name}" if prefix else item.name
+            
+            if item.is_dir():
+                items.append({
+                    "name": item.name,
+                    "type": "directory",
+                    "path": rel_path,
+                    "children": get_file_tree(item, rel_path)
+                })
+            else:
+                items.append({
+                    "name": item.name,
+                    "type": "file",
+                    "path": rel_path
+                })
+    except Exception as e:
+        logger.error(f"Error getting file tree: {e}")
+    return items
+
+# ============== OPENAI TOOLS DEFINITION ==============
+
+AGENT_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "create_file",
+            "description": "Create a new file with the specified content in the project workspace",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "The file path relative to the project root (e.g., 'src/App.js', 'index.html')"
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "The complete content of the file"
+                    }
+                },
+                "required": ["path", "content"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "modify_file",
+            "description": "Modify an existing file by replacing its content",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "The file path relative to the project root"
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "The new complete content of the file"
+                    }
+                },
+                "required": ["path", "content"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_file",
+            "description": "Read the content of an existing file",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "The file path relative to the project root"
+                    }
+                },
+                "required": ["path"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "delete_file",
+            "description": "Delete a file from the project workspace",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "The file path relative to the project root"
+                    }
+                },
+                "required": ["path"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_files",
+            "description": "List all files in the project workspace",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "directory": {
+                        "type": "string",
+                        "description": "Optional directory path to list (defaults to root)"
+                    }
+                },
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "run_command",
+            "description": "Run a shell command in the project workspace (e.g., npm install, python script.py)",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {
+                        "type": "string",
+                        "description": "The shell command to execute"
+                    }
+                },
+                "required": ["command"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_roadmap",
+            "description": "Create a roadmap item for the project plan",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "description": "Title of the roadmap item"
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "Description of what needs to be done"
+                    }
+                },
+                "required": ["title", "description"]
+            }
+        }
+    },
+    {
+        "type": "function", 
+        "function": {
+            "name": "update_roadmap_status",
+            "description": "Update the status of a roadmap item",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "description": "Title of the roadmap item to update"
+                    },
+                    "status": {
+                        "type": "string",
+                        "enum": ["pending", "in_progress", "completed"],
+                        "description": "New status"
+                    }
+                },
+                "required": ["title", "status"]
+            }
+        }
+    }
+]
+
+async def execute_tool(tool_name: str, arguments: dict, workspace_path: Path, project_id: str) -> str:
+    """Execute a tool and return the result"""
+    try:
+        if tool_name == "create_file":
+            file_path = workspace_path / arguments["path"]
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+            async with aiofiles.open(file_path, 'w') as f:
+                await f.write(arguments["content"])
+            await add_log(project_id, "success", f"Datei erstellt: {arguments['path']}", "coder")
+            return f"Datei erfolgreich erstellt: {arguments['path']}"
+        
+        elif tool_name == "modify_file":
+            file_path = workspace_path / arguments["path"]
+            if not file_path.exists():
+                return f"Fehler: Datei nicht gefunden: {arguments['path']}"
+            async with aiofiles.open(file_path, 'w') as f:
+                await f.write(arguments["content"])
+            await add_log(project_id, "success", f"Datei geändert: {arguments['path']}", "coder")
+            return f"Datei erfolgreich geändert: {arguments['path']}"
+        
+        elif tool_name == "read_file":
+            file_path = workspace_path / arguments["path"]
+            if not file_path.exists():
+                return f"Fehler: Datei nicht gefunden: {arguments['path']}"
+            async with aiofiles.open(file_path, 'r') as f:
+                content = await f.read()
+            return f"Inhalt von {arguments['path']}:\n```\n{content}\n```"
+        
+        elif tool_name == "delete_file":
+            file_path = workspace_path / arguments["path"]
+            if file_path.exists():
+                file_path.unlink()
+                await add_log(project_id, "info", f"Datei gelöscht: {arguments['path']}", "coder")
+                return f"Datei gelöscht: {arguments['path']}"
+            return f"Datei nicht gefunden: {arguments['path']}"
+        
+        elif tool_name == "list_files":
+            directory = arguments.get("directory", "")
+            target_path = workspace_path / directory if directory else workspace_path
+            if not target_path.exists():
+                return f"Verzeichnis nicht gefunden: {directory}"
+            
+            files = []
+            for item in target_path.rglob("*"):
+                if item.is_file() and not any(p in str(item) for p in ['.git', 'node_modules', '__pycache__']):
+                    files.append(str(item.relative_to(workspace_path)))
+            return f"Dateien im Projekt:\n" + "\n".join(files[:50])
+        
+        elif tool_name == "run_command":
+            command = arguments["command"]
+            # Security: Only allow safe commands
+            safe_commands = ['npm', 'yarn', 'pip', 'python', 'node', 'cat', 'ls', 'mkdir', 'echo']
+            cmd_parts = command.split()
+            if not any(command.startswith(safe) for safe in safe_commands):
+                return f"Befehl nicht erlaubt aus Sicherheitsgründen: {command}"
+            
+            await add_log(project_id, "info", f"Befehl ausführen: {command}", "tester")
+            try:
+                result = subprocess.run(
+                    command,
+                    shell=True,
+                    cwd=workspace_path,
+                    capture_output=True,
+                    text=True,
+                    timeout=60
+                )
+                output = result.stdout + result.stderr
+                if result.returncode == 0:
+                    await add_log(project_id, "success", f"Befehl erfolgreich: {command}", "tester")
+                else:
+                    await add_log(project_id, "error", f"Befehl fehlgeschlagen: {command}", "tester")
+                return f"Befehl: {command}\nExit Code: {result.returncode}\nAusgabe:\n{output[:2000]}"
+            except subprocess.TimeoutExpired:
+                return f"Befehl Timeout nach 60 Sekunden: {command}"
+        
+        elif tool_name == "create_roadmap":
+            last_item = await db.roadmap.find_one({"project_id": project_id}, sort=[("order", -1)])
+            next_order = (last_item.get("order", 0) + 1) if last_item else 0
+            
+            item = RoadmapItem(
+                project_id=project_id,
+                title=arguments["title"],
+                description=arguments["description"],
+                order=next_order
+            )
+            await db.roadmap.insert_one(item.model_dump())
+            await add_log(project_id, "info", f"Roadmap erstellt: {arguments['title']}", "planner")
+            return f"Roadmap-Eintrag erstellt: {arguments['title']}"
+        
+        elif tool_name == "update_roadmap_status":
+            result = await db.roadmap.update_one(
+                {"project_id": project_id, "title": arguments["title"]},
+                {"$set": {"status": arguments["status"]}}
+            )
+            if result.modified_count > 0:
+                return f"Roadmap-Status aktualisiert: {arguments['title']} -> {arguments['status']}"
+            return f"Roadmap-Eintrag nicht gefunden: {arguments['title']}"
+        
+        return f"Unbekanntes Tool: {tool_name}"
+    
+    except Exception as e:
+        logger.error(f"Tool execution error: {e}")
+        await add_log(project_id, "error", f"Tool-Fehler: {str(e)}", "debugger")
+        return f"Fehler bei {tool_name}: {str(e)}"
 
 # ============== PROJECTS ==============
 
@@ -138,13 +464,27 @@ async def create_project(project: ProjectCreate):
     workspace_path.mkdir(exist_ok=True)
     project_obj.workspace_path = str(workspace_path)
     
+    # Create initial files based on project type
+    if project.project_type == "fullstack":
+        # Create a basic project structure
+        (workspace_path / "src").mkdir(exist_ok=True)
+        (workspace_path / "public").mkdir(exist_ok=True)
+    
     doc = project_obj.model_dump()
     await db.projects.insert_one(doc)
+    
+    # Initialize agent statuses
+    for agent_type in ["orchestrator", "planner", "coder", "reviewer", "tester", "debugger", "git"]:
+        agent = AgentStatus(project_id=project_obj.id, agent_type=agent_type, status="idle")
+        await db.agent_status.insert_one(agent.model_dump())
+    
+    await add_log(project_obj.id, "success", f"Projekt erstellt: {project.name}", "system")
+    
     return project_obj
 
 @api_router.get("/projects", response_model=List[Project])
 async def get_projects():
-    projects = await db.projects.find({}, {"_id": 0}).to_list(100)
+    projects = await db.projects.find({}, {"_id": 0}).sort("created_at", -1).to_list(100)
     return projects
 
 @api_router.get("/projects/{project_id}", response_model=Project)
@@ -156,9 +496,11 @@ async def get_project(project_id: str):
 
 @api_router.delete("/projects/{project_id}")
 async def delete_project(project_id: str):
-    result = await db.projects.delete_one({"id": project_id})
-    if result.deleted_count == 0:
+    project = await db.projects.find_one({"id": project_id})
+    if not project:
         raise HTTPException(status_code=404, detail="Project not found")
+    
+    await db.projects.delete_one({"id": project_id})
     
     # Delete workspace
     workspace_path = WORKSPACES_DIR / project_id
@@ -183,30 +525,15 @@ async def get_messages(project_id: str):
     ).sort("created_at", 1).to_list(1000)
     return messages
 
-@api_router.post("/projects/{project_id}/messages", response_model=Message)
-async def create_message(project_id: str, message: MessageCreate):
-    # Verify project exists
-    project = await db.projects.find_one({"id": project_id})
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
-    
-    msg_obj = Message(
-        project_id=project_id,
-        content=message.content,
-        role=message.role
-    )
-    
-    doc = msg_obj.model_dump()
-    await db.messages.insert_one(doc)
-    return msg_obj
-
 @api_router.post("/projects/{project_id}/chat")
 async def chat_with_ai(project_id: str, message: MessageCreate):
-    """Send a message and get AI response with streaming"""
-    # Verify project exists
+    """Send a message and get AI response with streaming and tool execution"""
     project = await db.projects.find_one({"id": project_id})
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
+    
+    workspace_path = Path(project.get('workspace_path', WORKSPACES_DIR / project_id))
+    workspace_path.mkdir(exist_ok=True)
     
     # Save user message
     user_msg = Message(
@@ -220,61 +547,183 @@ async def chat_with_ai(project_id: str, message: MessageCreate):
     history = await db.messages.find(
         {"project_id": project_id},
         {"_id": 0}
-    ).sort("created_at", 1).to_list(50)
+    ).sort("created_at", 1).to_list(30)
     
-    # Build messages for OpenAI
-    system_prompt = f"""Du bist ForgePilot, ein KI-Assistent für Softwareentwicklung. 
-Du hilfst bei der Planung, Entwicklung und dem Debugging von Softwareprojekten.
+    # Get current files in workspace
+    file_list = []
+    try:
+        for item in workspace_path.rglob("*"):
+            if item.is_file() and not any(p in str(item) for p in ['.git', 'node_modules', '__pycache__']):
+                file_list.append(str(item.relative_to(workspace_path)))
+    except:
+        pass
+    
+    files_context = "\n".join(file_list[:30]) if file_list else "Keine Dateien vorhanden"
+    
+    # Build system prompt
+    system_prompt = f"""Du bist ForgePilot, ein fortschrittlicher KI-Entwicklungsassistent. Du kannst vollständige Softwareprojekte erstellen, Code schreiben und Dateien verwalten.
 
-Projekt: {project.get('name', 'Unbenannt')}
-Beschreibung: {project.get('description', 'Keine Beschreibung')}
-Typ: {project.get('project_type', 'fullstack')}
+PROJEKT-INFORMATIONEN:
+- Name: {project.get('name', 'Unbenannt')}
+- Beschreibung: {project.get('description', 'Keine Beschreibung')}
+- Typ: {project.get('project_type', 'fullstack')}
+- Workspace: {workspace_path}
 
-Deine Aufgaben:
-1. Anforderungen verstehen und klären
-2. Technische Strategien vorschlagen
-3. Code generieren und erklären
-4. Fehler analysieren und beheben
-5. Best Practices empfehlen
+AKTUELLE DATEIEN IM PROJEKT:
+{files_context}
 
-Antworte auf Deutsch, es sei denn, der Nutzer schreibt auf einer anderen Sprache."""
+DEINE FÄHIGKEITEN:
+1. Dateien erstellen und bearbeiten (create_file, modify_file)
+2. Dateien lesen und auflisten (read_file, list_files)
+3. Befehle ausführen (run_command) - z.B. npm install, pip install
+4. Roadmap erstellen und verwalten (create_roadmap, update_roadmap_status)
 
-    messages = [{"role": "system", "content": system_prompt}]
-    for msg in history[-20:]:  # Last 20 messages for context
-        messages.append({
+ARBEITSWEISE:
+1. Analysiere die Anforderungen des Nutzers
+2. Erstelle einen Plan (Roadmap)
+3. Implementiere die Lösung schrittweise
+4. Erstelle alle notwendigen Dateien
+5. Erkläre was du tust
+
+WICHTIG:
+- Erstelle immer vollständige, funktionsfähige Dateien
+- Bei Web-Projekten: Erstelle index.html, styles.css, und app.js
+- Bei React-Projekten: Erstelle die komplette Projektstruktur
+- Antworte auf Deutsch
+- Zeige dem Nutzer den erstellten Code"""
+
+    messages_for_api = [{"role": "system", "content": system_prompt}]
+    for msg in history[-20:]:
+        messages_for_api.append({
             "role": msg.get("role", "user"),
             "content": msg.get("content", "")
         })
     
     async def generate():
+        files_created = []
+        files_modified = []
         full_response = ""
+        
         try:
-            stream = await openai_client.chat.completions.create(
+            # Update agent status
+            await update_agent(project_id, "orchestrator", "running", "Verarbeite Anfrage...")
+            yield f"data: {json.dumps({'agent': 'orchestrator', 'status': 'running'})}\n\n"
+            
+            # First API call
+            response = await openai_client.chat.completions.create(
                 model="gpt-4o",
-                messages=messages,
+                messages=messages_for_api,
+                tools=AGENT_TOOLS,
+                tool_choice="auto",
                 stream=True,
                 max_tokens=4000
             )
             
-            async for chunk in stream:
-                if chunk.choices[0].delta.content:
-                    content = chunk.choices[0].delta.content
-                    full_response += content
-                    yield f"data: {json.dumps({'content': content})}\n\n"
+            tool_calls = []
+            current_tool_call = None
+            
+            async for chunk in response:
+                delta = chunk.choices[0].delta
+                
+                # Handle content
+                if delta.content:
+                    full_response += delta.content
+                    yield f"data: {json.dumps({'content': delta.content})}\n\n"
+                
+                # Handle tool calls
+                if delta.tool_calls:
+                    for tc in delta.tool_calls:
+                        if tc.index is not None:
+                            while len(tool_calls) <= tc.index:
+                                tool_calls.append({"id": "", "function": {"name": "", "arguments": ""}})
+                            
+                            if tc.id:
+                                tool_calls[tc.index]["id"] = tc.id
+                            if tc.function:
+                                if tc.function.name:
+                                    tool_calls[tc.index]["function"]["name"] = tc.function.name
+                                if tc.function.arguments:
+                                    tool_calls[tc.index]["function"]["arguments"] += tc.function.arguments
+            
+            # Execute tool calls if any
+            if tool_calls:
+                await update_agent(project_id, "coder", "running", "Führe Aktionen aus...")
+                yield f"data: {json.dumps({'agent': 'coder', 'status': 'running'})}\n\n"
+                
+                tool_results = []
+                for tc in tool_calls:
+                    if tc["function"]["name"] and tc["function"]["arguments"]:
+                        try:
+                            args = json.loads(tc["function"]["arguments"])
+                            tool_name = tc["function"]["name"]
+                            
+                            yield f"data: {json.dumps({'tool': tool_name, 'args': args})}\n\n"
+                            
+                            result = await execute_tool(tool_name, args, workspace_path, project_id)
+                            tool_results.append({
+                                "tool_call_id": tc["id"],
+                                "role": "tool",
+                                "content": result
+                            })
+                            
+                            if tool_name == "create_file":
+                                files_created.append(args.get("path", ""))
+                            elif tool_name == "modify_file":
+                                files_modified.append(args.get("path", ""))
+                            
+                            yield f"data: {json.dumps({'tool_result': result[:500]})}\n\n"
+                        except json.JSONDecodeError as e:
+                            logger.error(f"JSON decode error: {e}")
+                
+                # Get final response after tool execution
+                if tool_results:
+                    messages_for_api.append({
+                        "role": "assistant",
+                        "content": full_response,
+                        "tool_calls": [{"id": tc["id"], "type": "function", "function": tc["function"]} for tc in tool_calls if tc["id"]]
+                    })
+                    messages_for_api.extend(tool_results)
+                    
+                    # Get completion response
+                    final_response = await openai_client.chat.completions.create(
+                        model="gpt-4o",
+                        messages=messages_for_api,
+                        stream=True,
+                        max_tokens=2000
+                    )
+                    
+                    separator = "\n\n---\n\n"
+                    yield f"data: {json.dumps({'content': separator})}\n\n"
+                    full_response += separator
+                    
+                    async for chunk in final_response:
+                        if chunk.choices[0].delta.content:
+                            content = chunk.choices[0].delta.content
+                            full_response += content
+                            yield f"data: {json.dumps({'content': content})}\n\n"
+                
+                await update_agent(project_id, "coder", "completed", "Aktionen abgeschlossen")
+            
+            # Update agents to completed
+            await update_agent(project_id, "orchestrator", "completed", "Anfrage bearbeitet")
             
             # Save AI response
             ai_msg = Message(
                 project_id=project_id,
                 content=full_response,
                 role="assistant",
-                agent_type="orchestrator"
+                agent_type="orchestrator",
+                files_created=files_created if files_created else None,
+                files_modified=files_modified if files_modified else None
             )
             await db.messages.insert_one(ai_msg.model_dump())
             
-            yield f"data: {json.dumps({'done': True, 'message_id': ai_msg.id})}\n\n"
+            yield f"data: {json.dumps({'done': True, 'message_id': ai_msg.id, 'files_created': files_created, 'files_modified': files_modified})}\n\n"
             
         except Exception as e:
             logger.error(f"Chat error: {e}")
+            await update_agent(project_id, "orchestrator", "error", str(e))
+            await add_log(project_id, "error", f"Chat-Fehler: {str(e)}", "system")
             yield f"data: {json.dumps({'error': str(e)})}\n\n"
     
     return StreamingResponse(generate(), media_type="text/event-stream")
@@ -288,42 +737,19 @@ async def get_agent_statuses(project_id: str):
         {"_id": 0}
     ).to_list(20)
     
-    # If no agents exist, create default ones
     if not agents:
-        default_agents = [
-            {"agent_type": "orchestrator", "status": "idle"},
-            {"agent_type": "planner", "status": "idle"},
-            {"agent_type": "coder", "status": "idle"},
-            {"agent_type": "reviewer", "status": "idle"},
-            {"agent_type": "tester", "status": "idle"},
-            {"agent_type": "debugger", "status": "idle"},
-            {"agent_type": "git", "status": "idle"},
-        ]
-        for agent_data in default_agents:
-            agent = AgentStatus(project_id=project_id, **agent_data)
+        default_agents = ["orchestrator", "planner", "coder", "reviewer", "tester", "debugger", "git"]
+        for agent_type in default_agents:
+            agent = AgentStatus(project_id=project_id, agent_type=agent_type, status="idle")
             await db.agent_status.insert_one(agent.model_dump())
             agents.append(agent.model_dump())
     
     return agents
 
 @api_router.put("/projects/{project_id}/agents/{agent_type}")
-async def update_agent_status(project_id: str, agent_type: str, status: str, message: Optional[str] = None):
-    update_data = {
-        "status": status,
-        "message": message
-    }
-    
-    if status == "running":
-        update_data["started_at"] = datetime.now(timezone.utc).isoformat()
-    elif status in ["completed", "error"]:
-        update_data["completed_at"] = datetime.now(timezone.utc).isoformat()
-    
-    result = await db.agent_status.update_one(
-        {"project_id": project_id, "agent_type": agent_type},
-        {"$set": update_data}
-    )
-    
-    return {"updated": result.modified_count > 0}
+async def update_agent_status_endpoint(project_id: str, agent_type: str, status: str = Query(...), message: Optional[str] = None):
+    await update_agent(project_id, agent_type, status, message)
+    return {"updated": True}
 
 # ============== GITHUB OPERATIONS ==============
 
@@ -331,21 +757,18 @@ async def update_agent_status(project_id: str, agent_type: str, status: str, mes
 async def import_from_github(data: GitHubImport):
     """Clone a GitHub repository"""
     try:
-        # Create project
         project_name = data.project_name or data.repo_url.split('/')[-1].replace('.git', '')
         project_obj = Project(
             name=project_name,
-            description=f"Imported from {data.repo_url}",
+            description=f"Importiert von {data.repo_url}",
             github_url=data.repo_url,
             project_type="fullstack"
         )
         
         workspace_path = WORKSPACES_DIR / project_obj.id
         
-        # Clone repo
         clone_url = data.repo_url
         if github_token and 'github.com' in clone_url:
-            # Add token for private repos
             clone_url = clone_url.replace('https://', f'https://{github_token}@')
         
         git.Repo.clone_from(clone_url, workspace_path, branch=data.branch)
@@ -353,14 +776,12 @@ async def import_from_github(data: GitHubImport):
         project_obj.workspace_path = str(workspace_path)
         await db.projects.insert_one(project_obj.model_dump())
         
-        # Add log entry
-        log = LogEntry(
-            project_id=project_obj.id,
-            level="success",
-            message=f"Repository erfolgreich geklont: {data.repo_url}",
-            source="git"
-        )
-        await db.logs.insert_one(log.model_dump())
+        # Initialize agents
+        for agent_type in ["orchestrator", "planner", "coder", "reviewer", "tester", "debugger", "git"]:
+            agent = AgentStatus(project_id=project_obj.id, agent_type=agent_type, status="idle")
+            await db.agent_status.insert_one(agent.model_dump())
+        
+        await add_log(project_obj.id, "success", f"Repository geklont: {data.repo_url}", "git")
         
         return project_obj
         
@@ -380,49 +801,37 @@ async def commit_to_github(data: GitHubCommit):
         if not workspace_path:
             raise HTTPException(status_code=400, detail="No workspace found")
         
+        await update_agent(data.project_id, "git", "running", "Committing...")
+        
         repo = git.Repo(workspace_path)
-        
-        # Stage all changes
         repo.git.add(A=True)
-        
-        # Commit
         repo.index.commit(data.message)
         
-        # Push
         origin = repo.remote(name='origin')
         origin.push(data.branch)
         
-        # Add log entry
-        log = LogEntry(
-            project_id=data.project_id,
-            level="success",
-            message=f"Änderungen committed und gepusht: {data.message}",
-            source="git"
-        )
-        await db.logs.insert_one(log.model_dump())
+        await update_agent(data.project_id, "git", "completed", "Push erfolgreich")
+        await add_log(data.project_id, "success", f"Commit: {data.message}", "git")
         
         return {"success": True, "message": "Changes committed and pushed"}
         
     except Exception as e:
+        await update_agent(data.project_id, "git", "error", str(e))
         logger.error(f"GitHub commit error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
 @api_router.get("/github/branches/{project_id}")
 async def get_branches(project_id: str):
-    """Get available branches"""
+    project = await db.projects.find_one({"id": project_id})
+    if not project or not project.get('workspace_path'):
+        raise HTTPException(status_code=404, detail="Project or workspace not found")
+    
     try:
-        project = await db.projects.find_one({"id": project_id})
-        if not project or not project.get('workspace_path'):
-            raise HTTPException(status_code=404, detail="Project or workspace not found")
-        
         repo = git.Repo(project['workspace_path'])
         branches = [ref.name for ref in repo.references if 'HEAD' not in ref.name]
-        
         return {"branches": branches, "current": repo.active_branch.name}
-        
-    except Exception as e:
-        logger.error(f"Get branches error: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+    except:
+        return {"branches": [], "current": None}
 
 # ============== ROADMAP ==============
 
@@ -435,22 +844,26 @@ async def get_roadmap(project_id: str):
     return items
 
 @api_router.post("/projects/{project_id}/roadmap", response_model=RoadmapItem)
-async def add_roadmap_item(project_id: str, title: str, description: str):
-    # Get current max order
-    last_item = await db.roadmap.find_one(
-        {"project_id": project_id},
-        sort=[("order", -1)]
-    )
+async def add_roadmap_item(project_id: str, data: dict = Body(...)):
+    last_item = await db.roadmap.find_one({"project_id": project_id}, sort=[("order", -1)])
     next_order = (last_item.get("order", 0) + 1) if last_item else 0
     
     item = RoadmapItem(
         project_id=project_id,
-        title=title,
-        description=description,
+        title=data.get("title", ""),
+        description=data.get("description", ""),
         order=next_order
     )
     await db.roadmap.insert_one(item.model_dump())
     return item
+
+@api_router.put("/projects/{project_id}/roadmap/{item_id}")
+async def update_roadmap_item(project_id: str, item_id: str, data: dict = Body(...)):
+    result = await db.roadmap.update_one(
+        {"project_id": project_id, "id": item_id},
+        {"$set": data}
+    )
+    return {"updated": result.modified_count > 0}
 
 # ============== LOGS ==============
 
@@ -463,14 +876,13 @@ async def get_logs(project_id: str, limit: int = 100):
     return logs
 
 @api_router.post("/projects/{project_id}/logs", response_model=LogEntry)
-async def add_log(project_id: str, level: str, message: str, source: str = "system"):
-    log = LogEntry(
-        project_id=project_id,
-        level=level,
-        message=message,
-        source=source
+async def add_log_entry(project_id: str, data: dict = Body(...)):
+    log = await add_log(
+        project_id, 
+        data.get("level", "info"), 
+        data.get("message", ""),
+        data.get("source", "system")
     )
-    await db.logs.insert_one(log.model_dump())
     return log
 
 # ============== WORKSPACE FILES ==============
@@ -479,25 +891,32 @@ async def add_log(project_id: str, level: str, message: str, source: str = "syst
 async def get_workspace_files(project_id: str, path: str = ""):
     """Get files in workspace directory"""
     project = await db.projects.find_one({"id": project_id})
-    if not project or not project.get('workspace_path'):
-        raise HTTPException(status_code=404, detail="Workspace not found")
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
     
-    workspace = Path(project['workspace_path'])
+    workspace = Path(project.get('workspace_path', WORKSPACES_DIR / project_id))
+    if not workspace.exists():
+        workspace.mkdir(parents=True, exist_ok=True)
+    
     target_path = workspace / path if path else workspace
     
     if not target_path.exists():
-        raise HTTPException(status_code=404, detail="Path not found")
+        return {"type": "directory", "items": [], "tree": []}
     
     if target_path.is_file():
-        # Return file content
-        async with aiofiles.open(target_path, 'r', errors='replace') as f:
-            content = await f.read()
-        return {"type": "file", "content": content, "path": str(path)}
+        try:
+            async with aiofiles.open(target_path, 'r', errors='replace') as f:
+                content = await f.read()
+            return {"type": "file", "content": content, "path": path}
+        except Exception as e:
+            return {"type": "file", "content": f"Fehler beim Lesen: {e}", "path": path}
     
-    # Return directory listing
+    # Return directory with tree structure
+    tree = get_file_tree(workspace)
+    
     items = []
     for item in target_path.iterdir():
-        if item.name.startswith('.'):
+        if item.name.startswith('.') or item.name in ['node_modules', '__pycache__']:
             continue
         items.append({
             "name": item.name,
@@ -505,25 +924,55 @@ async def get_workspace_files(project_id: str, path: str = ""):
             "path": str(item.relative_to(workspace))
         })
     
-    return {"type": "directory", "items": sorted(items, key=lambda x: (x["type"] != "directory", x["name"]))}
+    return {
+        "type": "directory", 
+        "items": sorted(items, key=lambda x: (x["type"] != "directory", x["name"])),
+        "tree": tree
+    }
 
 @api_router.put("/projects/{project_id}/files")
-async def save_workspace_file(project_id: str, path: str, content: str):
+async def save_workspace_file(project_id: str, data: FileCreate):
     """Save file in workspace"""
     project = await db.projects.find_one({"id": project_id})
-    if not project or not project.get('workspace_path'):
-        raise HTTPException(status_code=404, detail="Workspace not found")
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
     
-    workspace = Path(project['workspace_path'])
-    target_path = workspace / path
+    workspace = Path(project.get('workspace_path', WORKSPACES_DIR / project_id))
+    target_path = workspace / data.path
     
-    # Ensure parent directory exists
     target_path.parent.mkdir(parents=True, exist_ok=True)
     
     async with aiofiles.open(target_path, 'w') as f:
-        await f.write(content)
+        await f.write(data.content)
     
-    return {"success": True, "path": path}
+    await add_log(project_id, "info", f"Datei gespeichert: {data.path}", "editor")
+    
+    return {"success": True, "path": data.path}
+
+@api_router.delete("/projects/{project_id}/files")
+async def delete_workspace_file(project_id: str, path: str = Query(...)):
+    """Delete file from workspace"""
+    project = await db.projects.find_one({"id": project_id})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    workspace = Path(project.get('workspace_path', WORKSPACES_DIR / project_id))
+    target_path = workspace / path
+    
+    if target_path.exists():
+        if target_path.is_dir():
+            shutil.rmtree(target_path)
+        else:
+            target_path.unlink()
+        await add_log(project_id, "info", f"Gelöscht: {path}", "editor")
+        return {"success": True}
+    
+    raise HTTPException(status_code=404, detail="File not found")
+
+@api_router.post("/projects/{project_id}/files/new")
+async def create_new_file(project_id: str, data: FileCreate):
+    """Create a new file"""
+    return await save_workspace_file(project_id, data)
 
 # Include the router
 app.include_router(api_router)
