@@ -98,6 +98,122 @@ const Logo = () => (
   </div>
 );
 
+// ============== Agent Activity Feed Component ==============
+
+const AgentActivityItem = ({ activity }) => {
+  const agentColors = {
+    orchestrator: "text-purple-400 border-purple-500/30 bg-purple-500/10",
+    planner: "text-blue-400 border-blue-500/30 bg-blue-500/10",
+    coder: "text-emerald-400 border-emerald-500/30 bg-emerald-500/10",
+    reviewer: "text-amber-400 border-amber-500/30 bg-amber-500/10",
+    tester: "text-cyan-400 border-cyan-500/30 bg-cyan-500/10",
+    debugger: "text-rose-400 border-rose-500/30 bg-rose-500/10",
+    git: "text-orange-400 border-orange-500/30 bg-orange-500/10",
+  };
+  
+  const agentIcons = {
+    orchestrator: Zap,
+    planner: ListTodo,
+    coder: Code,
+    reviewer: Eye,
+    tester: CheckCircle2,
+    debugger: Bug,
+    git: GitBranch,
+  };
+  
+  const Icon = agentIcons[activity.agent] || Zap;
+  const colorClass = agentColors[activity.agent] || "text-zinc-400 border-zinc-500/30 bg-zinc-500/10";
+  
+  const getActionIcon = () => {
+    switch(activity.action) {
+      case 'file_created': return <File size={10} className="text-emerald-400" />;
+      case 'file_modified': return <FileCode size={10} className="text-amber-400" />;
+      case 'file_deleted': return <X size={10} className="text-rose-400" />;
+      case 'test_started': return <Play size={10} className="text-cyan-400" />;
+      case 'test_passed': return <CheckCircle2 size={10} className="text-emerald-400" />;
+      case 'test_failed': return <Bug size={10} className="text-rose-400" />;
+      case 'error_found': return <Bug size={10} className="text-rose-400" />;
+      case 'error_fixed': return <CheckCircle2 size={10} className="text-emerald-400" />;
+      case 'handoff': return <ArrowRight size={10} className="text-blue-400" />;
+      case 'thinking': return <Loader2 size={10} className="animate-spin text-purple-400" />;
+      case 'searching': return <Search size={10} className="text-blue-400" />;
+      case 'complete': return <Check size={10} className="text-emerald-400" />;
+      default: return <Circle size={10} />;
+    }
+  };
+  
+  return (
+    <div className={`flex items-start gap-2 p-2 rounded-md border ${colorClass} animate-fade-in`}>
+      <div className="flex items-center gap-1.5 shrink-0">
+        <Icon size={12} />
+        <span className="text-xs font-medium capitalize">{activity.agent}</span>
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-1.5">
+          {getActionIcon()}
+          <span className="text-xs text-zinc-300">{activity.message}</span>
+        </div>
+        {activity.details && (
+          <p className="text-xs text-zinc-500 mt-0.5 truncate">{activity.details}</p>
+        )}
+      </div>
+      <span className="text-xs text-zinc-600 shrink-0">{activity.time}</span>
+    </div>
+  );
+};
+
+// ============== Project Summary Component ==============
+
+const ProjectSummary = ({ previewInfo, onPush, isPushing }) => {
+  if (!previewInfo?.ready_for_push) return null;
+  
+  return (
+    <div className="p-4 bg-gradient-to-r from-emerald-500/10 to-blue-500/10 border border-emerald-500/30 rounded-lg animate-fade-in">
+      <div className="flex items-start gap-3">
+        <div className="p-2 bg-emerald-500/20 rounded-lg">
+          <CheckCircle2 size={24} className="text-emerald-400" />
+        </div>
+        <div className="flex-1">
+          <h3 className="text-lg font-semibold text-emerald-300 flex items-center gap-2">
+            Projekt fertig!
+            <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 text-xs rounded-full">Bereit für Push</span>
+          </h3>
+          <p className="text-sm text-zinc-400 mt-1">{previewInfo.pending_commit_message}</p>
+          
+          {previewInfo.tested_features?.length > 0 && (
+            <div className="mt-3">
+              <p className="text-xs text-zinc-500 mb-1.5">Getestete Features:</p>
+              <div className="flex flex-wrap gap-1.5">
+                {previewInfo.tested_features.map((feature, i) => (
+                  <span key={i} className="px-2 py-0.5 bg-zinc-800 border border-zinc-700 text-zinc-300 text-xs rounded-full flex items-center gap-1">
+                    <Check size={10} className="text-emerald-400" />
+                    {feature}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+          
+          <div className="flex items-center gap-2 mt-4">
+            <button 
+              onClick={onPush}
+              disabled={isPushing}
+              className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-medium rounded-md transition-colors disabled:opacity-50"
+            >
+              {isPushing ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
+              Jetzt zu GitHub pushen
+            </button>
+            <button className="flex items-center gap-2 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded-md transition-colors">
+              <ExternalLink size={16} />
+              Live Preview öffnen
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const AgentStatusPill = ({ agent }) => {
   const statusColors = {
     idle: "bg-zinc-700",
@@ -661,9 +777,25 @@ const Workspace = () => {
   const [useOllama, setUseOllama] = useState(false);
   // Autonomous agent progress
   const [agentProgress, setAgentProgress] = useState({ iteration: 0, maxIterations: 20, currentTool: null, isAutonomous: false });
+  // Agent Activity Feed - detaillierte Anzeige was gerade passiert
+  const [agentActivities, setAgentActivities] = useState([]);
   const chatContainerRef = useRef(null);
+  const activityContainerRef = useRef(null);
   const pollingRef = useRef(null);
   const iframeRef = useRef(null);
+
+  // Add activity to feed
+  const addActivity = (agent, action, message, details = null) => {
+    const now = new Date();
+    const time = now.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    setAgentActivities(prev => [...prev.slice(-50), { id: Date.now(), agent, action, message, details, time }]);
+    // Auto-scroll activity feed
+    setTimeout(() => {
+      if (activityContainerRef.current) {
+        activityContainerRef.current.scrollTop = activityContainerRef.current.scrollHeight;
+      }
+    }, 100);
+  };
 
   useEffect(() => {
     loadProjectData();
@@ -830,6 +962,9 @@ const Workspace = () => {
     setInputValue("");
     setIsLoading(true);
     setAgentProgress({ iteration: 0, maxIterations: 20, currentTool: null, isAutonomous: true });
+    setAgentActivities([]); // Clear previous activities
+    
+    addActivity('orchestrator', 'thinking', 'Starte autonome Entwicklung...', 'Analysiere Anfrage');
 
     try {
       const response = await fetch(`${API}/projects/${projectId}/chat`, {
@@ -864,29 +999,77 @@ const Workspace = () => {
               if (data.iteration) {
                 setAgentProgress(prev => ({ ...prev, iteration: data.iteration }));
               }
+              // Handle tool calls with detailed activity display
               if (data.tool) {
                 setAgentProgress(prev => ({ ...prev, currentTool: data.tool }));
+                const toolMessages = {
+                  'create_file': { agent: 'coder', action: 'file_created', msg: 'Erstellt Datei' },
+                  'modify_file': { agent: 'coder', action: 'file_modified', msg: 'Bearbeitet Datei' },
+                  'read_file': { agent: 'coder', action: 'thinking', msg: 'Liest Datei' },
+                  'delete_file': { agent: 'coder', action: 'file_deleted', msg: 'Löscht Datei' },
+                  'list_files': { agent: 'coder', action: 'thinking', msg: 'Analysiert Projektstruktur' },
+                  'run_command': { agent: 'tester', action: 'test_started', msg: 'Führt Befehl aus' },
+                  'create_roadmap': { agent: 'planner', action: 'thinking', msg: 'Erstellt Roadmap-Punkt' },
+                  'update_roadmap_status': { agent: 'planner', action: 'thinking', msg: 'Aktualisiert Roadmap' },
+                  'web_search': { agent: 'planner', action: 'searching', msg: 'Recherchiert Best Practices' },
+                  'test_code': { agent: 'tester', action: 'test_started', msg: 'Testet Code' },
+                  'debug_error': { agent: 'debugger', action: 'error_found', msg: 'Analysiert Fehler' },
+                  'ask_user': { agent: 'orchestrator', action: 'thinking', msg: 'Hat eine Frage' },
+                  'mark_complete': { agent: 'orchestrator', action: 'complete', msg: 'Projekt fertiggestellt' },
+                };
+                const toolInfo = toolMessages[data.tool] || { agent: 'coder', action: 'thinking', msg: data.tool };
+                const details = data.args ? Object.entries(data.args).map(([k, v]) => `${k}: ${v}`).join(', ') : null;
+                addActivity(toolInfo.agent, toolInfo.action, toolInfo.msg, details);
+              }
+              // Handle tool results
+              if (data.tool_result) {
+                const isError = data.tool_result.includes('✗') || data.tool_result.toLowerCase().includes('fehler');
+                const isSuccess = data.tool_result.includes('✓') || data.tool_result.includes('✅');
+                if (isError) {
+                  addActivity('debugger', 'error_found', 'Fehler gefunden', data.tool_result.substring(0, 100));
+                  addActivity('debugger', 'thinking', 'Analysiert Problem...', 'Suche nach Lösung');
+                } else if (isSuccess) {
+                  addActivity('coder', 'test_passed', 'Erfolgreich', data.tool_result.substring(0, 80));
+                }
               }
               if (data.agent) {
                 setAgents(prev => prev.map(a => a.agent_type === data.agent ? { ...a, status: data.status } : a));
+                if (data.status === 'running') {
+                  addActivity(data.agent, 'thinking', `${data.agent} übernimmt...`, null);
+                }
               }
               if (data.autonomous !== undefined) {
                 setAgentProgress(prev => ({ ...prev, isAutonomous: data.autonomous }));
+                if (data.autonomous) {
+                  addActivity('orchestrator', 'thinking', 'Arbeitet autonom weiter...', null);
+                }
               }
               if (data.ask_user) {
                 setAgentProgress(prev => ({ ...prev, isAutonomous: false, currentTool: "ask_user" }));
+                addActivity('orchestrator', 'handoff', 'Wartet auf Benutzer-Eingabe', 'Agent hat eine Frage');
               }
               if (data.complete) {
                 setAgentProgress(prev => ({ ...prev, isAutonomous: false, currentTool: "complete" }));
+                addActivity('orchestrator', 'complete', 'Projekt fertiggestellt!', 'Bereit für GitHub Push');
               }
               if (data.done) {
                 filesCreated = data.files_created || [];
                 if (filesCreated.length > 0) {
                   setMessages(prev => prev.map(msg => msg.id === aiMessageId ? { ...msg, files_created: filesCreated } : msg));
+                  addActivity('coder', 'file_created', `${filesCreated.length} Datei(en) erstellt`, filesCreated.join(', '));
                 }
+                addActivity('orchestrator', 'complete', 'Iteration abgeschlossen', `${data.iterations || 0} Schritte`);
                 setAgentProgress({ iteration: 0, maxIterations: 20, currentTool: null, isAutonomous: false });
                 refreshData();
                 refreshPreview();
+              }
+              // Handle warning
+              if (data.warning) {
+                addActivity('orchestrator', 'error_found', 'Warnung', data.warning);
+              }
+              // Handle errors
+              if (data.error) {
+                addActivity('debugger', 'error_found', 'Fehler aufgetreten', data.error);
               }
             } catch (e) {}
           }
@@ -894,6 +1077,7 @@ const Workspace = () => {
       }
     } catch (e) {
       console.error("Chat error:", e);
+      addActivity('orchestrator', 'error_found', 'Verbindungsfehler', e.message);
     } finally {
       setIsLoading(false);
       setAgentProgress({ iteration: 0, maxIterations: 20, currentTool: null, isAutonomous: false });
@@ -1001,7 +1185,7 @@ const Workspace = () => {
         )}
 
         {/* Chat Panel */}
-        <div className="w-96 border-r border-zinc-800 bg-zinc-950 flex flex-col shrink-0">
+        <div className="w-[420px] border-r border-zinc-800 bg-zinc-950 flex flex-col shrink-0">
           <div className="p-3 border-b border-zinc-800 bg-zinc-900/30" data-testid="agent-timeline">
             <h3 className="text-xs font-semibold uppercase tracking-widest text-zinc-500 mb-2">Agent Status</h3>
             <div className="flex flex-wrap gap-1.5">
@@ -1009,12 +1193,49 @@ const Workspace = () => {
             </div>
           </div>
 
+          {/* Agent Activity Feed - Live-Anzeige was gerade passiert */}
+          {(isLoading || agentActivities.length > 0) && (
+            <div className="border-b border-zinc-800 bg-zinc-900/20">
+              <div className="p-2 border-b border-zinc-800/50 flex items-center justify-between">
+                <h4 className="text-xs font-semibold uppercase tracking-widest text-zinc-500 flex items-center gap-2">
+                  {isLoading && <Loader2 size={10} className="animate-spin text-blue-400" />}
+                  Live-Aktivität
+                </h4>
+                {agentActivities.length > 0 && (
+                  <span className="text-xs text-zinc-600">{agentActivities.length} Aktionen</span>
+                )}
+              </div>
+              <div 
+                ref={activityContainerRef} 
+                className="max-h-48 overflow-y-auto p-2 space-y-1.5"
+                data-testid="agent-activity-feed"
+              >
+                {agentActivities.map(activity => (
+                  <AgentActivityItem key={activity.id} activity={activity} />
+                ))}
+                {isLoading && agentActivities.length === 0 && (
+                  <div className="flex items-center gap-2 p-2 text-zinc-500 text-xs">
+                    <Loader2 size={12} className="animate-spin" />
+                    <span>Warte auf Agent-Aktivität...</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Project Summary when ready for push */}
+          {previewInfo?.ready_for_push && (
+            <div className="p-3 border-b border-zinc-800">
+              <ProjectSummary previewInfo={previewInfo} onPush={handlePush} isPushing={isPushing} />
+            </div>
+          )}
+
           <div ref={chatContainerRef} className="flex-1 overflow-y-auto p-4 space-y-4" data-testid="chat-message-list">
             {messages.map((message) => <ChatMessage key={message.id} message={message} />)}
             {isLoading && messages[messages.length - 1]?.role === "user" && (
               <div className="flex items-center gap-2 text-zinc-500">
                 <Loader2 size={16} className="animate-spin" />
-                <span className="text-sm">Agent arbeitet...</span>
+                <span className="text-sm">Agent arbeitet autonom...</span>
               </div>
             )}
           </div>
