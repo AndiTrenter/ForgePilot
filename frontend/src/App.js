@@ -1185,8 +1185,8 @@ const Workspace = () => {
         )}
 
         {/* Chat Panel */}
-        <div className="w-[420px] border-r border-zinc-800 bg-zinc-950 flex flex-col shrink-0">
-          <div className="p-3 border-b border-zinc-800 bg-zinc-900/30" data-testid="agent-timeline">
+        <div className="w-[420px] border-r border-zinc-800 bg-zinc-950 flex flex-col shrink-0 overflow-hidden">
+          <div className="p-3 border-b border-zinc-800 bg-zinc-900/30 shrink-0" data-testid="agent-timeline">
             <h3 className="text-xs font-semibold uppercase tracking-widest text-zinc-500 mb-2">Agent Status</h3>
             <div className="flex flex-wrap gap-1.5">
               {agents.map((agent) => <AgentStatusPill key={agent.agent_type} agent={agent} />)}
@@ -1195,7 +1195,7 @@ const Workspace = () => {
 
           {/* Agent Activity Feed - Live-Anzeige was gerade passiert */}
           {(isLoading || agentActivities.length > 0) && (
-            <div className="border-b border-zinc-800 bg-zinc-900/20">
+            <div className="border-b border-zinc-800 bg-zinc-900/20 shrink-0">
               <div className="p-2 border-b border-zinc-800/50 flex items-center justify-between">
                 <h4 className="text-xs font-semibold uppercase tracking-widest text-zinc-500 flex items-center gap-2">
                   {isLoading && <Loader2 size={10} className="animate-spin text-blue-400" />}
@@ -1225,12 +1225,12 @@ const Workspace = () => {
 
           {/* Project Summary when ready for push */}
           {previewInfo?.ready_for_push && (
-            <div className="p-3 border-b border-zinc-800">
+            <div className="p-3 border-b border-zinc-800 shrink-0">
               <ProjectSummary previewInfo={previewInfo} onPush={handlePush} isPushing={isPushing} />
             </div>
           )}
 
-          <div ref={chatContainerRef} className="flex-1 overflow-y-auto p-4 space-y-4" data-testid="chat-message-list">
+          <div ref={chatContainerRef} className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0" data-testid="chat-message-list">
             {messages.map((message) => <ChatMessage key={message.id} message={message} />)}
             {isLoading && messages[messages.length - 1]?.role === "user" && (
               <div className="flex items-center gap-2 text-zinc-500">
@@ -1240,11 +1240,11 @@ const Workspace = () => {
             )}
           </div>
 
-          <div className="px-3 py-1 border-t border-zinc-800/50">
+          <div className="px-3 py-1 border-t border-zinc-800/50 shrink-0">
             <button onClick={scrollToBottom} className="w-full text-xs text-zinc-500 hover:text-zinc-300 py-1 transition-colors">↓ Zum Ende scrollen</button>
           </div>
 
-          <div className="p-3 border-t border-zinc-800 bg-zinc-900/50">
+          <div className="p-3 border-t border-zinc-800 bg-zinc-900/50 shrink-0">
             <div className="flex items-end gap-2">
               <textarea value={inputValue} onChange={(e) => setInputValue(e.target.value)} onKeyDown={handleKeyDown} placeholder="Nachricht an Agent..." rows={2} className="flex-1 bg-zinc-800 border border-zinc-700 text-white px-3 py-2 rounded-md focus:outline-none focus:border-zinc-500 placeholder:text-zinc-600 resize-none text-sm" data-testid="chat-input" />
               <Tooltip text="Sendet die Nachricht an den KI-Agenten" position="top">
@@ -1256,8 +1256,8 @@ const Workspace = () => {
           </div>
         </div>
 
-        {/* Right Panel */}
-        <div className="flex-1 bg-zinc-900/50 flex flex-col overflow-hidden">
+        {/* Right Panel - Preview/Editor/Logs/Roadmap */}
+        <div className="flex-1 bg-zinc-900/50 flex flex-col overflow-hidden isolate">
           <div className="h-10 border-b border-zinc-800 flex items-center px-2 bg-zinc-950/50 shrink-0">
             <div className="flex items-center gap-1">
               {[
