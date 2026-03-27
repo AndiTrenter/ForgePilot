@@ -8,7 +8,7 @@
 **Last Updated:** 27. März 2026
 
 ## Original Problem Statement
-Ein lokales, Docker-basiertes Single-User-System auf Unraid, das Software-Projekte per Chat plant, recherchiert, programmiert, testet, debuggt, in einer Live-Preview ausführt und in GitHub oder lokal ausgibt. Der Agent soll autonom arbeiten (coden, testen, debuggen) bis er fertig ist oder eine Frage hat.
+Ein lokales, Docker-basiertes Single-User-System auf Unraid, das Software-Projekte per Chat plant, recherchiert, programmiert, testet, debuggt, in einer Live-Preview ausführt und in GitHub oder lokal ausgibt.
 
 ## Technology Stack
 - **Frontend:** React 19, Tailwind CSS, Lucide React Icons, Prism.js
@@ -18,126 +18,104 @@ Ein lokales, Docker-basiertes Single-User-System auf Unraid, das Software-Projek
 
 ## ✅ All Implemented Features
 
-### 1. Intelligente Code-Entwicklung
-- [x] **Web Research** - Sucht automatisch nach Best Practices
-- [x] **Code-Generierung** mit OpenAI Tool Calls
-- [x] **Autonomer Workflow** - Agent arbeitet selbstständig
-- [x] **13 AI Tools:** create_file, modify_file, read_file, delete_file, list_files, run_command, create_roadmap, update_roadmap_status, web_search, test_code, debug_error, ask_user, mark_complete
+### P0 (Core Features)
+- [x] Projekt erstellen per Chat
+- [x] Autonomer AI-Workflow (coden, testen, debuggen)
+- [x] Live-Preview für HTML/CSS/JS
+- [x] GitHub Import/Export
+- [x] 7 spezialisierte Agenten
 
-### 2. Live-Preview System
-- [x] **Echte Live-Preview** im iframe
-- [x] Automatische Erkennung von Entry Points
-- [x] "Preview öffnen" Button für externe Ansicht
-- [x] Refresh bei Dateiänderungen
+### P1 (High Priority)
+- [x] Made with Emergent Badge entfernt
+- [x] Preview-Panel Toggle (schließen/öffnen)
+- [x] Scroll-Problem behoben
+- [x] Mikrofon-Button für Spracheingabe
+- [x] Live-Aktivitätsanzeige
+- [x] Projekt-Zusammenfassung
+- [x] Multi-Tab Editor
+- [x] Ollama Settings UI
 
-### 3. GitHub Workflow
-- [x] **Repository Dropdown**
-- [x] **Branch Dropdown**
-- [x] **Ready for Push** Status
-- [x] Push-Button wenn Projekt bereit
+### P2 (Medium Priority) - ✅ ERLEDIGT
+- [x] **6 Projekt-Templates:**
+  - React App (⚛️)
+  - Vue.js App (💚)
+  - Node.js API (🟢)
+  - Python FastAPI (🐍)
+  - Landing Page (🚀)
+  - Dashboard (📊)
+- [x] **8 Tastaturkürzel:**
+  - Ctrl+S - Datei speichern
+  - Ctrl+Shift+S - Alle Dateien speichern
+  - Ctrl+P - Preview ein/aus
+  - Ctrl+B - Datei-Explorer ein/aus
+  - Ctrl+K - Chat fokussieren
+  - Ctrl+W - Tab schließen
+  - Ctrl+Shift+R - Preview neu laden
+  - Ctrl+, - Einstellungen öffnen
 
-### 4. User Experience
-- [x] **Tooltips auf allen Buttons** (2 Sekunden Verzögerung)
-- [x] Chat ohne Auto-Scroll
-- [x] File Explorer mit Tree-Struktur
-- [x] Code Editor mit Syntax Highlighting
-- [x] **Made with Emergent Badge entfernt**
-- [x] **Preview-Panel kann geschlossen werden** (X-Button oder Toggle)
-- [x] **Chat expandiert wenn Preview geschlossen**
-- [x] **Mikrofon-Button für Spracheingabe** (Web Speech API, Deutsch)
+### P3 (Low Priority) - ✅ ERLEDIGT
+- [x] Komponenten refactored in separate Dateien:
+  - /components/common.jsx (Tooltip, Logo, LoadingScreen)
+  - /components/api.js (API Funktionen)
+  - /components/AgentComponents.jsx (Agent UI)
+  - /components/EditorComponents.jsx (Editor, FileTree, Chat)
+  - /components/templates.js (Template-Definitionen)
+  - /components/shortcuts.js (Keyboard Shortcuts)
 
-### 5. Agent System (7 Agenten)
-- [x] Orchestrator, Planner, Coder, Reviewer, Tester, Debugger, Git
-
-### 6. Live-Aktivitätsanzeige
-- [x] **Agent Activity Feed** - Echtzeit-Anzeige
-- [x] Farbcodierte Agenten
-- [x] Zeitstempel für jede Aktion
-- [x] Handoff-Anzeige zwischen Agenten
-
-### 7. Multi-Tab Editor
-- [x] Mehrere Dateien gleichzeitig öffnen
-- [x] Tabs mit Close-Button
-- [x] Unsaved-Indicator
-- [x] "Alle speichern" Button
-
-### 8. Ollama Settings UI
-- [x] Settings Modal mit LLM-Auswahl
-- [x] Toggle zwischen OpenAI/Ollama
-- [x] Status-Anzeige und Setup-Anleitung
-
-### 9. Projekt-Zusammenfassung
-- [x] Erscheint wenn Projekt für Push bereit
-- [x] Zeigt Commit-Message und getestete Features
-- [x] Direkte Push- und Preview-Buttons
-
-### 10. Scroll-Fix
-- [x] **Preview-Panel scrollt NICHT mit beim Chat-Scrollen**
-- [x] CSS `overflow: hidden` auf html/body
-- [x] Getestet: document.documentElement.scrollTop bleibt 0
-
-### 11. Docker Deployment
-- [x] docker-compose.yml für Unraid
-- [x] Backend/Frontend Dockerfiles
-
-## Test Results (Iteration 4)
+## Test Results (Iteration 5)
 
 | Kategorie | Ergebnis |
 |-----------|----------|
 | Backend | 100% Pass |
 | Frontend | 100% Pass |
-| KRITISCH: Scroll-Fix | ✅ Bestanden |
-| KRITISCH: Panel Toggle | ✅ Bestanden |
-| KRITISCH: Badge entfernt | ✅ Bestanden |
-| KRITISCH: Mikrofon | ✅ Bestanden |
+| Templates | 6/6 funktionieren |
+| Shortcuts | 8/8 angezeigt |
 
 ## API Endpoints (Alle getestet ✅)
 
 - GET /api/ - API Status
 - GET /api/projects - Projektliste
 - POST /api/projects - Neues Projekt
-- GET /api/projects/{id} - Projekt-Details
-- DELETE /api/projects/{id} - Projekt löschen
+- GET/DELETE /api/projects/{id}
 - POST /api/projects/{id}/chat - Chat (SSE)
-- GET /api/projects/{id}/messages - Nachrichten
-- GET /api/projects/{id}/agents - Agent-Status
-- GET /api/projects/{id}/files - Dateiliste
-- PUT /api/projects/{id}/files - Datei speichern
-- GET /api/projects/{id}/preview/{path} - Preview-Dateien
-- GET /api/projects/{id}/preview-info - Preview-Status
-- POST /api/projects/{id}/push - Push zu GitHub
-- GET /api/projects/{id}/roadmap - Roadmap
-- GET /api/projects/{id}/logs - Logs
-- GET /api/github/repos - GitHub Repos
-- GET /api/github/branches - GitHub Branches
-- POST /api/github/import - Repo importieren
-- GET /api/ollama/status - Ollama Status
-- POST /api/ollama/enable - Ollama aktivieren
+- GET /api/projects/{id}/messages
+- GET /api/projects/{id}/agents
+- GET /api/projects/{id}/files
+- PUT /api/projects/{id}/files
+- GET /api/projects/{id}/preview/{path}
+- GET /api/projects/{id}/preview-info
+- POST /api/projects/{id}/push
+- GET /api/projects/{id}/roadmap
+- GET /api/projects/{id}/logs
+- GET /api/github/repos
+- GET /api/github/branches
+- POST /api/github/import
+- GET /api/ollama/status
+- POST /api/ollama/enable
 
-## Backlog (Future)
+## Future Backlog
 
-### P2 (Medium)
-- [ ] App.js refactoren (~1600 Zeilen → kleinere Komponenten)
-- [ ] Tastaturkürzel für häufige Aktionen
-- [ ] Projekt-Templates (React, Vue, Node, Python)
-
-### P3 (Low)
+- [ ] Echte Docker-Container für Node.js/Python Projekte
 - [ ] Mehrere Ollama-Modelle zur Auswahl
 - [ ] Projekt-Export als ZIP
 - [ ] Versionsverlauf für Dateien
-- [ ] Echte Docker-Container für Node.js/Python Projekte
+- [ ] Weitere Templates (Svelte, Angular, Django)
 
 ## Changelog
 
-### 27. März 2026 - RELEASE
-- ✅ Preview-Panel Toggle (schließen/öffnen)
-- ✅ Chat expandiert wenn Preview geschlossen
-- ✅ Scroll-Fix endgültig gelöst (CSS overflow:hidden)
-- ✅ Mikrofon-Button für Spracheingabe
-- ✅ Alle Tests bestanden (100% Backend, 100% Frontend)
+### 27. März 2026 - P2/P3 COMPLETE
+- ✅ 6 Projekt-Templates auf Homepage
+- ✅ 8 Tastaturkürzel implementiert
+- ✅ Komponenten in separate Dateien refactored
+- ✅ Settings-Modal erweitert mit Shortcuts-Anzeige
+
+### 27. März 2026 - P1 COMPLETE
+- ✅ Preview-Panel Toggle
+- ✅ Scroll-Fix
+- ✅ Mikrofon-Button
+- ✅ Made with Emergent Badge entfernt
 
 ### 26. März 2026
-- ✅ Made with Emergent Badge entfernt
 - ✅ Live-Aktivitätsanzeige
 - ✅ Multi-Tab Editor
 - ✅ Ollama Settings UI
@@ -147,4 +125,34 @@ Ein lokales, Docker-basiertes Single-User-System auf Unraid, das Software-Projek
 - ✅ MVP erstellt
 - ✅ Workspace Split-Pane UI
 - ✅ Agent Status Timeline
-- ✅ Code Editor mit Prism.js
+
+## Project Structure
+
+```
+/app/
+├── backend/
+│   ├── server.py              # FastAPI Application
+│   ├── requirements.txt
+│   └── Dockerfile
+├── frontend/
+│   ├── src/
+│   │   ├── App.js             # Main React App
+│   │   ├── App.css
+│   │   └── components/
+│   │       ├── index.js       # Re-exports
+│   │       ├── common.jsx     # Tooltip, Logo
+│   │       ├── api.js         # API Functions
+│   │       ├── AgentComponents.jsx
+│   │       ├── EditorComponents.jsx
+│   │       ├── templates.js   # 6 Templates
+│   │       └── shortcuts.js   # Keyboard Shortcuts
+│   └── package.json
+├── workspaces/                # Project files
+├── docker-compose.yml
+└── memory/
+    └── PRD.md
+```
+
+## 🎉 PROJECT COMPLETE
+
+ForgePilot ist vollständig implementiert und getestet. Alle P0, P1, P2 und P3 Aufgaben sind erledigt.
