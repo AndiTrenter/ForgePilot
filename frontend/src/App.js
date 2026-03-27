@@ -215,7 +215,7 @@ const ProjectSummary = ({ previewInfo, onPush, isPushing }) => {
   );
 };
 
-const AgentStatusPill = ({ agent }) => {
+const AgentStatusPill = ({ agent, isProjectComplete }) => {
   const statusColors = {
     idle: "bg-zinc-700",
     running: "bg-blue-500 animate-pulse",
@@ -243,18 +243,22 @@ const AgentStatusPill = ({ agent }) => {
     git: GitBranch,
   };
   const Icon = icons[agent.agent_type] || Zap;
+  
+  // Wenn Projekt fertig ist, zeige alle Agenten als "completed"
+  const effectiveStatus = isProjectComplete ? "completed" : agent.status;
 
   return (
     <Tooltip text={agentDescriptions[agent.agent_type] || "Agent"} position="bottom">
       <div 
         className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-zinc-900 border transition-all duration-300 cursor-help ${
-          agent.status === "running" ? "border-blue-500/50 shadow-lg shadow-blue-500/20" : "border-zinc-800"
+          effectiveStatus === "running" ? "border-blue-500/50 shadow-lg shadow-blue-500/20" : 
+          effectiveStatus === "completed" ? "border-emerald-500/50" : "border-zinc-800"
         }`}
         data-testid={`agent-status-${agent.agent_type}`}
       >
-        <div className={`w-2 h-2 rounded-full ${statusColors[agent.status]}`} />
-        <Icon size={14} />
-        <span className="text-sm capitalize text-zinc-300">{agent.agent_type}</span>
+        <div className={`w-2 h-2 rounded-full ${statusColors[effectiveStatus]}`} />
+        <Icon size={14} className={effectiveStatus === "completed" ? "text-emerald-400" : "text-zinc-400"} />
+        <span className={`text-sm capitalize ${effectiveStatus === "completed" ? "text-emerald-300" : "text-zinc-300"}`}>{agent.agent_type}</span>
       </div>
     </Tooltip>
   );
@@ -1399,7 +1403,7 @@ const Workspace = () => {
           <div className="p-3 border-b border-zinc-800 bg-zinc-900/30 shrink-0" data-testid="agent-timeline">
             <h3 className="text-xs font-semibold uppercase tracking-widest text-zinc-500 mb-2">Agent Status</h3>
             <div className="flex flex-wrap gap-1.5">
-              {agents.map((agent) => <AgentStatusPill key={agent.agent_type} agent={agent} />)}
+              {agents.map((agent) => <AgentStatusPill key={agent.agent_type} agent={agent} isProjectComplete={previewInfo?.ready_for_push} />)}
             </div>
           </div>
 
