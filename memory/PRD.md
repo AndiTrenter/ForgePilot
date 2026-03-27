@@ -1,114 +1,98 @@
 # ForgePilot - Product Requirements Document
 
 ## Project Overview
-**Name:** ForgePilot
-**Domain:** Developer Tools / AI Coding Assistant
-**Type:** Local Docker-based Single-User System for Unraid
-**Status:** MVP + P1 Features Complete ✅
+**Name:** ForgePilot  
+**Domain:** Developer Tools / AI Coding Assistant  
+**Type:** Local Docker-based Single-User System for Unraid  
+**Status:** Feature-Complete ✅
 
 ## Original Problem Statement
-Ein lokales, Docker-basiertes Single-User-System auf Unraid, das Software-Projekte per Chat plant, recherchiert, programmiert, testet, debuggt, in einer Live-Preview ausführt und in GitHub oder lokal ausgibt. Funktionsumfang und Bediengefühl an app.emergent.sh angelehnt, aber ohne Credit-System, ohne Kundenplattform und ohne öffentliche Hosting-Infrastruktur.
-
-## User Persona
-- **Primär:** Einzelentwickler, Hobby-Programmierer, Tech-Enthusiasten
-- **Anwendungsfall:** KI-gestützte Softwareentwicklung lokal auf eigenem Server
+Ein lokales, Docker-basiertes Single-User-System auf Unraid, das Software-Projekte per Chat plant, recherchiert, programmiert, testet, debuggt, in einer Live-Preview ausführt und in GitHub oder lokal ausgibt.
 
 ## Technology Stack
 - **Frontend:** React 19, Tailwind CSS, Lucide React Icons, Prism.js
-- **Backend:** FastAPI (Python), MongoDB 4.4, httpx
-- **AI:** OpenAI GPT-4o mit Tool Calling
-- **Version Control:** GitPython
-- **Deployment:** Docker Compose
-- **Design:** IBM Plex Sans + JetBrains Mono, Dark Theme (Zinc-950)
+- **Backend:** FastAPI, MongoDB 4.4, httpx, DuckDuckGo Search
+- **AI:** OpenAI GPT-4o mit Tool Calling (10 Tools)
+- **Deployment:** Docker Compose für Unraid
 
-## Core Requirements
+## ✅ Implemented Features
 
-### ✅ Implemented (MVP + P1 - March 27, 2025)
+### 1. Intelligente Code-Entwicklung
+- [x] **Web Research** - Sucht automatisch nach Best Practices vor der Implementierung
+- [x] **Code-Generierung** mit OpenAI Tool Calls
+- [x] **10 AI Tools:** create_file, modify_file, read_file, delete_file, list_files, run_command, create_roadmap, update_roadmap_status, web_search, mark_ready_for_push
 
-#### 1. Start Screen
-- [x] Zentraler Prompt-Bereich ("Was möchtest du bauen?")
-- [x] Projekttyp-Auswahl (Full Stack App, Mobile App, Landing Page)
-- [x] Aktuelle Projekte Übersicht
-- [x] GitHub Import Button
+### 2. Live-Preview System
+- [x] **Echte Live-Preview** im iframe - zeigt laufende HTML/CSS/JS Projekte
+- [x] Automatische Erkennung von Entry Points (index.html, etc.)
+- [x] "Preview öffnen" Button für externe Ansicht
+- [x] Refresh bei Dateiänderungen
 
-#### 2. Workspace / Arbeitsbereich
-- [x] Zweispaltiges Layout (Chat links, Preview rechts)
-- [x] Agent Status Timeline (7 Agenten)
-- [x] Chat mit AI Agent (Streaming Responses)
-- [x] **KEIN Auto-Scroll** - Nutzer kontrolliert Scrollposition
-- [x] "Zum Ende scrollen" Button
-- [x] **Code-Generierung mit OpenAI Tool Calls**
-- [x] File Explorer mit Tree-Struktur (Expand/Collapse)
-- [x] **Code Editor mit Prism.js Syntax Highlighting**
-- [x] Preview Panel
-- [x] Logs Tab
-- [x] Roadmap Tab
-
-#### 3. GitHub Integration (VERBESSERT)
-- [x] **Repository Dropdown** - lädt alle Repos des Users
+### 3. GitHub Workflow
+- [x] **Repository Dropdown** - lädt alle User-Repos
 - [x] **Branch Dropdown** - lädt Branches nach Repo-Auswahl
-- [x] **Repo Info Box** - zeigt Name, öffentlich/privat Status
-- [x] Zwei Modi: "Meine Repos" oder "URL eingeben"
-- [x] Clone mit Token-Authentifizierung
-- [x] Commit & Push API
-- [x] Commit Button in UI
+- [x] **Ready for Push** Status - Agent markiert wenn fertig
+- [x] Push-Button erscheint wenn Projekt bereit ist
 
-#### 4. AI Tool System
-- [x] create_file - Neue Dateien erstellen
-- [x] modify_file - Dateien bearbeiten
-- [x] read_file - Dateien lesen
-- [x] delete_file - Dateien löschen
-- [x] list_files - Dateien auflisten
-- [x] run_command - Shell-Befehle ausführen
-- [x] create_roadmap - Roadmap-Einträge erstellen
-- [x] update_roadmap_status - Roadmap-Status aktualisieren
+### 4. User Experience
+- [x] **Tooltips auf allen Buttons** - erscheinen nach 2-3 Sekunden Hover
+- [x] Einfache Erklärungen für jeden Button
+- [x] Verschwinden bei Klick oder Mouse-Leave
+- [x] Chat ohne Auto-Scroll
+- [x] File Explorer mit Tree-Struktur
+- [x] Code Editor mit Syntax Highlighting
 
-#### 5. Docker Compose (NEU)
+### 5. Agent System (7 Agenten)
+- [x] Orchestrator - Koordiniert alle Agenten
+- [x] Planner - Plant Architektur und Roadmap
+- [x] Coder - Schreibt und generiert Code
+- [x] Reviewer - Überprüft Code-Qualität
+- [x] Tester - Führt Tests durch
+- [x] Debugger - Analysiert Fehler
+- [x] Git - Verwaltet Versionskontrolle
+
+### 6. Docker Deployment
 - [x] docker-compose.yml für Unraid
 - [x] Backend Dockerfile
 - [x] Frontend Dockerfile mit nginx
 - [x] .env.example mit Konfiguration
 
-### 🔲 Backlog (P2 - Low Priority)
-
-- [ ] Echte Live-Preview mit Docker Container
-- [ ] Multi-File Editor Tabs
-- [ ] Ollama Integration (lokale LLMs als Fallback)
-- [ ] WebSocket für Real-time Updates (statt Polling)
-- [ ] Projekt-Templates
-- [ ] Test-Runner Integration
-
 ## Testing Results
-- **Backend:** 100% Tests bestanden
-- **Frontend:** 95% Tests bestanden
-- **Overall:** 97% Erfolgsrate
+- **Backend:** 100%
+- **Frontend:** 100%
+- **Overall:** 100% Erfolgsrate
 
-## Docker Deployment
+## Workflow
 
-```bash
-# 1. .env Datei erstellen
-cp .env.example .env
-# Fülle OPENAI_API_KEY und GITHUB_TOKEN aus
-
-# 2. Container starten
-docker-compose up -d
-
-# 3. ForgePilot öffnen
-# http://localhost:3000
+```
+1. Projekt beschreiben
+   ↓
+2. Agent recherchiert Best Practices (Web Search)
+   ↓
+3. Agent erstellt Roadmap
+   ↓
+4. Agent generiert Code
+   ↓
+5. Live-Preview testen
+   ↓
+6. Agent markiert als "Ready for Push"
+   ↓
+7. Push zu GitHub
+   ↓
+8. Deployment in reale Umgebung
 ```
 
 ## API Endpoints
 
 | Method | Endpoint | Beschreibung |
 |--------|----------|--------------|
-| GET | /api/github/repos | Liste der GitHub Repos |
-| GET | /api/github/branches?repo=user/repo | Branches eines Repos |
-| POST | /api/github/import | Repository klonen |
-| POST | /api/github/commit | Commit & Push |
+| GET | /api/projects/{id}/preview/{path} | Serviert Preview-Dateien |
+| GET | /api/projects/{id}/preview-info | Preview-Status |
+| POST | /api/projects/{id}/push | Push zu GitHub |
+| GET | /api/github/repos | Liste der Repos |
+| GET | /api/github/branches | Branches eines Repos |
 
-## Next Action Items
-1. ✅ Kein Auto-Scroll im Chat
-2. ✅ GitHub Repos/Branches Dropdowns
-3. ✅ Syntax Highlighting
-4. ✅ Docker Compose für Unraid
-5. ⏳ Echte Live-Preview
+## Next Steps
+- Echte Docker-Container für komplexere Projekte (Node.js, Python)
+- Multi-Tab Editor Support
+- Ollama Integration für lokale LLMs
