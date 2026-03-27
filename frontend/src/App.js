@@ -487,6 +487,7 @@ const StartScreen = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [recentProjects, setRecentProjects] = useState([]);
   const [showGitHubModal, setShowGitHubModal] = useState(false);
+  const [showTemplates, setShowTemplates] = useState(false);
 
   useEffect(() => {
     api.getProjects().then(res => setRecentProjects(res.data.slice(0, 6))).catch(() => {});
@@ -507,6 +508,21 @@ const StartScreen = () => {
     }
   };
 
+  const handleTemplateSelect = async (template) => {
+    setIsLoading(true);
+    try {
+      const res = await api.createProject({
+        name: `${template.name} Projekt`,
+        description: `${template.prompt} ${template.description}`,
+        project_type: template.id,
+        template_files: template.files,
+      });
+      navigate(`/workspace/${res.data.id}`);
+    } catch (e) {
+      setIsLoading(false);
+    }
+  };
+
   const handleKeyDown = (e) => {
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleSubmit();
   };
@@ -517,18 +533,34 @@ const StartScreen = () => {
     { id: "landing", label: "Landing Page", icon: Eye, desc: "Einzelseite für Marketing oder Produkte" },
   ];
 
+  // Project templates
+  const templates = [
+    { id: "react", name: "React App", icon: "⚛️", color: "from-cyan-500 to-blue-500", desc: "Moderne React-Anwendung" },
+    { id: "vue", name: "Vue.js App", icon: "💚", color: "from-emerald-500 to-green-500", desc: "Reaktive Vue.js 3 App" },
+    { id: "node", name: "Node.js API", icon: "🟢", color: "from-green-500 to-lime-500", desc: "Express.js REST API" },
+    { id: "python", name: "Python FastAPI", icon: "🐍", color: "from-yellow-500 to-amber-500", desc: "FastAPI mit Pydantic" },
+    { id: "landing", name: "Landing Page", icon: "🚀", color: "from-purple-500 to-pink-500", desc: "Marketing-Landingpage" },
+    { id: "dashboard", name: "Dashboard", icon: "📊", color: "from-blue-500 to-indigo-500", desc: "Admin mit Charts" },
+  ];
+
   return (
     <div className="min-h-screen bg-zinc-950 flex flex-col">
       <nav className="h-14 border-b border-zinc-800 bg-zinc-950/80 backdrop-blur-xl flex items-center justify-between px-6 sticky top-0 z-50">
         <Logo />
         <div className="flex items-center gap-4">
-          <Tooltip text="Importiere ein bestehendes Projekt von GitHub. Du kannst deine Repositories und Branches auswählen." position="bottom">
+          <Tooltip text="Starte mit einem vorgefertigten Template" position="bottom">
+            <button onClick={() => setShowTemplates(!showTemplates)} className={`flex items-center gap-2 px-3 py-1.5 text-sm rounded-md transition-colors ${showTemplates ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white hover:bg-zinc-800/50'}`} data-testid="templates-btn">
+              <ListTodo size={16} />
+              <span>Templates</span>
+            </button>
+          </Tooltip>
+          <Tooltip text="Importiere ein bestehendes Projekt von GitHub" position="bottom">
             <button onClick={() => setShowGitHubModal(true)} className="flex items-center gap-2 px-3 py-1.5 text-sm text-zinc-400 hover:text-white hover:bg-zinc-800/50 rounded-md transition-colors" data-testid="github-import-btn">
               <FolderGit2 size={16} />
               <span>GitHub Import</span>
             </button>
           </Tooltip>
-          <Tooltip text="Einstellungen und Konfiguration von ForgePilot" position="bottom">
+          <Tooltip text="Einstellungen und Konfiguration" position="bottom">
             <button className="p-2 text-zinc-400 hover:text-white hover:bg-zinc-800/50 rounded-md transition-colors">
               <Settings size={18} />
             </button>
@@ -542,6 +574,30 @@ const StartScreen = () => {
             <h1 className="text-4xl sm:text-5xl font-medium tracking-tighter text-zinc-50">Was möchtest du bauen?</h1>
             <p className="text-lg text-zinc-500">Beschreibe dein Projekt. ForgePilot recherchiert Best Practices, plant und entwickelt es für dich.</p>
           </div>
+
+          {/* Templates Section */}
+          {showTemplates && (
+            <div className="w-full animate-fade-in">
+              <h3 className="text-sm font-semibold uppercase tracking-widest text-zinc-500 mb-4">Schnellstart Templates</h3>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {templates.map((template) => (
+                  <button
+                    key={template.id}
+                    onClick={() => handleTemplateSelect(template)}
+                    disabled={isLoading}
+                    className="p-4 bg-zinc-900 border border-zinc-800 rounded-lg text-left hover:border-zinc-600 hover:bg-zinc-800/50 transition-all group disabled:opacity-50"
+                    data-testid={`template-${template.id}`}
+                  >
+                    <div className={`w-10 h-10 rounded-lg bg-gradient-to-br ${template.color} flex items-center justify-center text-xl mb-3`}>
+                      {template.icon}
+                    </div>
+                    <p className="font-medium text-zinc-200">{template.name}</p>
+                    <p className="text-xs text-zinc-500 mt-1">{template.desc}</p>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="flex items-center gap-2 p-1 bg-zinc-900 rounded-lg border border-zinc-800">
             {projectTypes.map(({ id, label, icon: Icon, desc }) => (
@@ -559,7 +615,7 @@ const StartScreen = () => {
 Beispiel: Erstelle eine moderne Todo-App mit dunklem Design. Die App soll Todos hinzufügen, bearbeiten und löschen können. Nutze moderne CSS-Techniken wie Grid und Animationen." className="w-full min-h-[200px] bg-transparent p-6 text-lg placeholder:text-zinc-600 focus:outline-none" data-testid="main-prompt-input" />
             <div className="flex items-center justify-between p-4 border-t border-zinc-800 bg-zinc-900/50">
               <span className="text-xs text-zinc-500">⌘ + Enter zum Starten</span>
-              <Tooltip text="Startet die KI-gestützte Entwicklung. ForgePilot wird zuerst im Web nach Best Practices recherchieren." position="top">
+              <Tooltip text="Startet die KI-gestützte Entwicklung" position="top">
                 <button onClick={handleSubmit} disabled={!prompt.trim() || isLoading} className="flex items-center gap-2 bg-white text-black hover:bg-zinc-200 font-medium px-5 py-2.5 rounded-md transition-all disabled:opacity-50 disabled:cursor-not-allowed" data-testid="submit-prompt-btn">
                   {isLoading ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
                   <span>Projekt starten</span>
@@ -849,6 +905,85 @@ const Workspace = () => {
       setIsListening(true);
     }
   };
+
+  // Keyboard Shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      const ctrl = e.ctrlKey || e.metaKey;
+      const shift = e.shiftKey;
+      const key = e.key.toLowerCase();
+
+      // Ctrl+S - Save current file
+      if (ctrl && key === 's' && !shift) {
+        e.preventDefault();
+        if (activeFileTab && dirtyFiles.has(activeFileTab)) {
+          saveFile(activeFileTab);
+        }
+        return;
+      }
+
+      // Ctrl+Shift+S - Save all files
+      if (ctrl && shift && key === 's') {
+        e.preventDefault();
+        saveAllFiles();
+        return;
+      }
+
+      // Ctrl+P - Toggle preview panel
+      if (ctrl && key === 'p') {
+        e.preventDefault();
+        setShowRightPanel(prev => !prev);
+        return;
+      }
+
+      // Ctrl+B - Toggle file explorer
+      if (ctrl && key === 'b') {
+        e.preventDefault();
+        setShowFileExplorer(prev => !prev);
+        return;
+      }
+
+      // Ctrl+K - Focus chat input
+      if (ctrl && key === 'k') {
+        e.preventDefault();
+        document.querySelector('[data-testid="chat-input"]')?.focus();
+        return;
+      }
+
+      // Ctrl+Shift+R - Refresh preview
+      if (ctrl && shift && key === 'r') {
+        e.preventDefault();
+        refreshPreview();
+        return;
+      }
+
+      // Ctrl+W - Close current tab
+      if (ctrl && key === 'w' && activeFileTab) {
+        e.preventDefault();
+        closeTab(activeFileTab);
+        return;
+      }
+
+      // Ctrl+, - Open settings
+      if (ctrl && key === ',') {
+        e.preventDefault();
+        setShowSettings(true);
+        return;
+      }
+
+      // Ctrl+Enter - Send message (when chat focused)
+      if (ctrl && e.key === 'Enter' && document.activeElement?.getAttribute('data-testid') === 'chat-input') {
+        e.preventDefault();
+        if (inputValue.trim() && !isLoading) {
+          sendMessage(inputValue);
+        }
+        return;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [activeFileTab, dirtyFiles, inputValue, isLoading]);
 
   // Add activity to feed
   const addActivity = (agent, action, message, details = null) => {
@@ -1589,6 +1724,28 @@ const Workspace = () => {
                   </ol>
                 </div>
               )}
+
+              {/* Keyboard Shortcuts */}
+              <div>
+                <h3 className="text-sm font-semibold text-zinc-300 mb-3">Tastaturkürzel</h3>
+                <div className="space-y-2 text-xs">
+                  {[
+                    { keys: 'Ctrl+S', desc: 'Datei speichern' },
+                    { keys: 'Ctrl+Shift+S', desc: 'Alle Dateien speichern' },
+                    { keys: 'Ctrl+P', desc: 'Preview ein/aus' },
+                    { keys: 'Ctrl+B', desc: 'Datei-Explorer ein/aus' },
+                    { keys: 'Ctrl+K', desc: 'Chat fokussieren' },
+                    { keys: 'Ctrl+W', desc: 'Tab schließen' },
+                    { keys: 'Ctrl+Shift+R', desc: 'Preview neu laden' },
+                    { keys: 'Ctrl+,', desc: 'Einstellungen öffnen' },
+                  ].map(({ keys, desc }) => (
+                    <div key={keys} className="flex items-center justify-between">
+                      <span className="text-zinc-400">{desc}</span>
+                      <kbd className="px-2 py-0.5 bg-zinc-800 border border-zinc-700 rounded text-zinc-300 font-mono">{keys}</kbd>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
             
             <div className="flex items-center justify-end gap-3 p-4 border-t border-zinc-800">
