@@ -1166,9 +1166,9 @@ const Workspace = () => {
   }
 
   return (
-    <div className="min-h-screen bg-zinc-950 flex flex-col">
+    <div className="workspace-container bg-zinc-950">
       {/* Navigation */}
-      <nav className="h-14 border-b border-zinc-800 bg-zinc-950/80 backdrop-blur-xl flex items-center justify-between px-4 sticky top-0 z-50">
+      <nav className="h-14 border-b border-zinc-800 bg-zinc-950/80 backdrop-blur-xl flex items-center justify-between px-4 shrink-0 z-50">
         <div className="flex items-center gap-4">
           <Tooltip text="Zurück zur Startseite" position="bottom">
             <button onClick={() => navigate("/")} className="p-2 text-zinc-400 hover:text-white hover:bg-zinc-800/50 rounded-md" data-testid="home-btn"><Home size={18} /></button>
@@ -1236,7 +1236,7 @@ const Workspace = () => {
       </nav>
 
       {/* Workspace Layout */}
-      <div className="flex-1 flex h-[calc(100vh-3.5rem)] overflow-hidden">
+      <div className="flex-1 flex overflow-hidden">
         {/* File Explorer */}
         {showFileExplorer && (
           <div className="w-56 border-r border-zinc-800 bg-zinc-950 flex flex-col shrink-0" data-testid="file-explorer">
