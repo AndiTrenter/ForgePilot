@@ -647,21 +647,50 @@ const Workspace = () => {
   const [inputValue, setInputValue] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [activeTab, setActiveTab] = useState("preview");
-  const [selectedFile, setSelectedFile] = useState(null);
-  const [fileContent, setFileContent] = useState("");
-  const [isFileDirty, setIsFileDirty] = useState(false);
+  // Multi-tab editor state
+  const [openTabs, setOpenTabs] = useState([]);
+  const [activeFileTab, setActiveFileTab] = useState(null);
+  const [fileContents, setFileContents] = useState({});
+  const [dirtyFiles, setDirtyFiles] = useState(new Set());
   const [showFileExplorer, setShowFileExplorer] = useState(true);
   const [previewInfo, setPreviewInfo] = useState(null);
   const [isPushing, setIsPushing] = useState(false);
+  // Ollama settings
+  const [showSettings, setShowSettings] = useState(false);
+  const [ollamaStatus, setOllamaStatus] = useState({ available: false, models: [] });
+  const [useOllama, setUseOllama] = useState(false);
+  // Autonomous agent progress
+  const [agentProgress, setAgentProgress] = useState({ iteration: 0, maxIterations: 20, currentTool: null, isAutonomous: false });
   const chatContainerRef = useRef(null);
   const pollingRef = useRef(null);
   const iframeRef = useRef(null);
 
   useEffect(() => {
     loadProjectData();
+    checkOllamaStatus();
     pollingRef.current = setInterval(refreshData, 5000);
     return () => { if (pollingRef.current) clearInterval(pollingRef.current); };
   }, [projectId]);
+
+  const checkOllamaStatus = async () => {
+    try {
+      const res = await axios.get(`${API}/ollama/status`);
+      setOllamaStatus(res.data);
+    } catch (e) {
+      setOllamaStatus({ available: false, models: [] });
+    }
+  };
+
+  const toggleOllama = async () => {
+    try {
+      if (!useOllama) {
+        await axios.post(`${API}/ollama/enable`);
+        setUseOllama(true);
+      } else {
+        setUseOllama(false);
+      }
+    } catch (e) {}
+  };
 
   const loadProjectData = async () => {
     try {
@@ -711,22 +740,60 @@ const Workspace = () => {
     try {
       const res = await api.getFiles(projectId, path);
       if (res.data.type === "file") {
-        setSelectedFile(path);
-        setFileContent(res.data.content);
-        setIsFileDirty(false);
+        // Add to open tabs if not already open
+        if (!openTabs.includes(path)) {
+          setOpenTabs(prev => [...prev, path]);
+        }
+        setFileContents(prev => ({ ...prev, [path]: res.data.content }));
+        setActiveFileTab(path);
         setActiveTab("editor");
       }
     } catch (e) {}
   };
 
-  const saveFile = async () => {
-    if (!selectedFile || !isFileDirty) return;
+  const closeTab = (path, e) => {
+    e?.stopPropagation();
+    setOpenTabs(prev => prev.filter(p => p !== path));
+    setFileContents(prev => {
+      const newContents = { ...prev };
+      delete newContents[path];
+      return newContents;
+    });
+    setDirtyFiles(prev => {
+      const newDirty = new Set(prev);
+      newDirty.delete(path);
+      return newDirty;
+    });
+    // Switch to another tab or close editor
+    if (activeFileTab === path) {
+      const remaining = openTabs.filter(p => p !== path);
+      setActiveFileTab(remaining.length > 0 ? remaining[remaining.length - 1] : null);
+    }
+  };
+
+  const saveFile = async (path = activeFileTab) => {
+    if (!path || !dirtyFiles.has(path)) return;
     try {
-      await api.saveFile(projectId, selectedFile, fileContent);
-      setIsFileDirty(false);
+      await api.saveFile(projectId, path, fileContents[path]);
+      setDirtyFiles(prev => {
+        const newDirty = new Set(prev);
+        newDirty.delete(path);
+        return newDirty;
+      });
       refreshData();
       refreshPreview();
     } catch (e) {}
+  };
+
+  const saveAllFiles = async () => {
+    for (const path of dirtyFiles) {
+      await saveFile(path);
+    }
+  };
+
+  const updateFileContent = (path, content) => {
+    setFileContents(prev => ({ ...prev, [path]: content }));
+    setDirtyFiles(prev => new Set(prev).add(path));
   };
 
   const refreshPreview = () => {
@@ -762,6 +829,7 @@ const Workspace = () => {
     setMessages(prev => [...prev, userMessage]);
     setInputValue("");
     setIsLoading(true);
+    setAgentProgress({ iteration: 0, maxIterations: 20, currentTool: null, isAutonomous: true });
 
     try {
       const response = await fetch(`${API}/projects/${projectId}/chat`, {
@@ -793,14 +861,30 @@ const Workspace = () => {
                 aiContent += data.content;
                 setMessages(prev => prev.map(msg => msg.id === aiMessageId ? { ...msg, content: aiContent } : msg));
               }
+              if (data.iteration) {
+                setAgentProgress(prev => ({ ...prev, iteration: data.iteration }));
+              }
+              if (data.tool) {
+                setAgentProgress(prev => ({ ...prev, currentTool: data.tool }));
+              }
               if (data.agent) {
                 setAgents(prev => prev.map(a => a.agent_type === data.agent ? { ...a, status: data.status } : a));
+              }
+              if (data.autonomous !== undefined) {
+                setAgentProgress(prev => ({ ...prev, isAutonomous: data.autonomous }));
+              }
+              if (data.ask_user) {
+                setAgentProgress(prev => ({ ...prev, isAutonomous: false, currentTool: "ask_user" }));
+              }
+              if (data.complete) {
+                setAgentProgress(prev => ({ ...prev, isAutonomous: false, currentTool: "complete" }));
               }
               if (data.done) {
                 filesCreated = data.files_created || [];
                 if (filesCreated.length > 0) {
                   setMessages(prev => prev.map(msg => msg.id === aiMessageId ? { ...msg, files_created: filesCreated } : msg));
                 }
+                setAgentProgress({ iteration: 0, maxIterations: 20, currentTool: null, isAutonomous: false });
                 refreshData();
                 refreshPreview();
               }
@@ -812,6 +896,7 @@ const Workspace = () => {
       console.error("Chat error:", e);
     } finally {
       setIsLoading(false);
+      setAgentProgress({ iteration: 0, maxIterations: 20, currentTool: null, isAutonomous: false });
     }
   };
 
@@ -844,6 +929,16 @@ const Workspace = () => {
           <span className="text-sm text-zinc-400 max-w-[200px] truncate">{project.name}</span>
         </div>
         <div className="flex items-center gap-2">
+          {/* Autonomous Progress Indicator */}
+          {agentProgress.isAutonomous && (
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-500/10 border border-blue-500/30 rounded-md animate-pulse">
+              <Loader2 size={14} className="animate-spin text-blue-400" />
+              <span className="text-xs text-blue-300">
+                Autonom: {agentProgress.iteration}/{agentProgress.maxIterations}
+                {agentProgress.currentTool && ` • ${agentProgress.currentTool}`}
+              </span>
+            </div>
+          )}
           {project.github_url && (
             <Tooltip text={previewInfo?.ready_for_push ? `Bereit für Push: "${previewInfo.pending_commit_message}"` : "Änderungen zu GitHub pushen (Agent muss zuerst als bereit markieren)"} position="bottom">
               <button 
@@ -863,6 +958,9 @@ const Workspace = () => {
           )}
           <Tooltip text="Zeigt/versteckt den Datei-Explorer links" position="bottom">
             <button onClick={() => setShowFileExplorer(!showFileExplorer)} className={`p-2 rounded-md ${showFileExplorer ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white hover:bg-zinc-800/50'}`} data-testid="toggle-file-explorer-btn"><LayoutPanelLeft size={18} /></button>
+          </Tooltip>
+          <Tooltip text="Einstellungen (Ollama, LLM-Auswahl)" position="bottom">
+            <button onClick={() => setShowSettings(true)} className="p-2 text-zinc-400 hover:text-white hover:bg-zinc-800/50 rounded-md" data-testid="settings-btn"><Settings size={18} /></button>
           </Tooltip>
           <Tooltip text="Öffnet die Live-Preview in einem neuen Tab" position="bottom">
             <button 
@@ -891,7 +989,7 @@ const Workspace = () => {
             </div>
             <div className="flex-1 overflow-y-auto p-2">
               {fileTree.length > 0 ? (
-                <FileTreeView items={fileTree} onSelect={loadFile} selectedPath={selectedFile} />
+                <FileTreeView items={fileTree} onSelect={loadFile} selectedPath={activeFileTab} />
               ) : (
                 <div className="text-center py-8 text-zinc-600 text-sm">
                   <Folder size={24} className="mx-auto mb-2 opacity-50" />
@@ -943,7 +1041,7 @@ const Workspace = () => {
             <div className="flex items-center gap-1">
               {[
                 { id: "preview", label: "Live Preview", icon: Eye, tip: "Zeigt eine Live-Vorschau des Projekts" },
-                { id: "editor", label: selectedFile || "Editor", icon: Code, tip: "Code-Editor mit Syntax-Highlighting" },
+                { id: "editor", label: "Editor", icon: Code, tip: "Code-Editor mit Syntax-Highlighting" },
                 { id: "logs", label: "Logs", icon: Terminal, tip: "Zeigt System- und Agent-Logs" },
                 { id: "roadmap", label: "Roadmap", icon: ListTodo, tip: "Zeigt den Projektplan und Fortschritt" },
               ].map(({ id, label, icon: Icon, tip }) => (
@@ -951,15 +1049,15 @@ const Workspace = () => {
                   <button onClick={() => setActiveTab(id)} className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border-b-2 transition-all ${activeTab === id ? "border-white text-white" : "border-transparent text-zinc-400 hover:text-zinc-100"}`} data-testid={`tab-${id}`}>
                     <Icon size={12} />
                     <span className="max-w-[120px] truncate">{label}</span>
-                    {id === "editor" && isFileDirty && <span className="w-2 h-2 bg-amber-400 rounded-full" />}
+                    {id === "editor" && dirtyFiles.size > 0 && <span className="w-2 h-2 bg-amber-400 rounded-full" />}
                   </button>
                 </Tooltip>
               ))}
             </div>
             <div className="flex-1" />
-            {activeTab === "editor" && selectedFile && (
-              <Tooltip text="Speichert die Datei und aktualisiert die Preview" position="bottom">
-                <button onClick={saveFile} disabled={!isFileDirty} className="flex items-center gap-1 px-2 py-1 text-xs text-zinc-400 hover:text-white disabled:opacity-50" data-testid="save-file-btn"><Save size={12} />Speichern</button>
+            {activeTab === "editor" && dirtyFiles.size > 0 && (
+              <Tooltip text="Speichert alle geänderten Dateien" position="bottom">
+                <button onClick={saveAllFiles} className="flex items-center gap-1 px-2 py-1 text-xs text-amber-400 hover:text-amber-300" data-testid="save-all-btn"><Save size={12} />Alle speichern ({dirtyFiles.size})</button>
               </Tooltip>
             )}
             {activeTab === "preview" && (
@@ -1010,17 +1108,55 @@ const Workspace = () => {
             )}
             
             {activeTab === "editor" && (
-              <div className="h-full" data-testid="editor-panel">
-                {selectedFile ? (
-                  <SyntaxEditor content={fileContent} onChange={(val) => { setFileContent(val); setIsFileDirty(true); }} language={getFileLanguage(selectedFile)} />
-                ) : (
-                  <div className="h-full flex items-center justify-center text-zinc-600">
-                    <div className="text-center space-y-3">
-                      <Code size={32} className="mx-auto opacity-50" />
-                      <p>Wähle eine Datei aus dem Explorer</p>
-                    </div>
+              <div className="h-full flex flex-col" data-testid="editor-panel">
+                {/* File Tabs */}
+                {openTabs.length > 0 && (
+                  <div className="flex items-center border-b border-zinc-800 bg-zinc-900/50 overflow-x-auto shrink-0">
+                    {openTabs.map(path => {
+                      const fileName = path.split('/').pop();
+                      const isDirty = dirtyFiles.has(path);
+                      const isActive = activeFileTab === path;
+                      return (
+                        <div
+                          key={path}
+                          onClick={() => setActiveFileTab(path)}
+                          className={`flex items-center gap-2 px-3 py-2 text-xs cursor-pointer border-r border-zinc-800 transition-colors group ${
+                            isActive ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200'
+                          }`}
+                          data-testid={`file-tab-${fileName}`}
+                        >
+                          <File size={12} />
+                          <span className="max-w-[100px] truncate">{fileName}</span>
+                          {isDirty && <span className="w-1.5 h-1.5 bg-amber-400 rounded-full" />}
+                          <button
+                            onClick={(e) => closeTab(path, e)}
+                            className="p-0.5 opacity-0 group-hover:opacity-100 hover:bg-zinc-700 rounded transition-opacity"
+                            data-testid={`close-tab-${fileName}`}
+                          >
+                            <X size={10} />
+                          </button>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
+                {/* Editor Content */}
+                <div className="flex-1 overflow-hidden">
+                  {activeFileTab ? (
+                    <SyntaxEditor 
+                      content={fileContents[activeFileTab] || ''} 
+                      onChange={(val) => updateFileContent(activeFileTab, val)} 
+                      language={getFileLanguage(activeFileTab)} 
+                    />
+                  ) : (
+                    <div className="h-full flex items-center justify-center text-zinc-600">
+                      <div className="text-center space-y-3">
+                        <Code size={32} className="mx-auto opacity-50" />
+                        <p>Wähle eine Datei aus dem Explorer</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
             
@@ -1047,6 +1183,89 @@ const Workspace = () => {
           </div>
         </div>
       </div>
+
+      {/* Settings Modal */}
+      {showSettings && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4" data-testid="settings-modal">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-lg w-full max-w-md shadow-2xl">
+            <div className="flex items-center justify-between p-4 border-b border-zinc-800">
+              <div className="flex items-center gap-2">
+                <Settings size={20} />
+                <h2 className="text-lg font-medium">Einstellungen</h2>
+              </div>
+              <button onClick={() => setShowSettings(false)} className="p-1 text-zinc-400 hover:text-white"><X size={20} /></button>
+            </div>
+            
+            <div className="p-4 space-y-6">
+              {/* LLM Selection */}
+              <div>
+                <h3 className="text-sm font-semibold text-zinc-300 mb-3">LLM Auswahl</h3>
+                <div className="space-y-3">
+                  <div 
+                    onClick={() => setUseOllama(false)}
+                    className={`p-3 rounded-lg border cursor-pointer transition-colors ${
+                      !useOllama ? 'bg-blue-500/10 border-blue-500/50' : 'bg-zinc-800/50 border-zinc-700 hover:border-zinc-600'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Zap size={16} className={!useOllama ? 'text-blue-400' : 'text-zinc-500'} />
+                        <span className="font-medium">OpenAI GPT-4o</span>
+                      </div>
+                      {!useOllama && <Check size={16} className="text-blue-400" />}
+                    </div>
+                    <p className="text-xs text-zinc-500 mt-1">Cloud-basiert, beste Qualität</p>
+                  </div>
+                  
+                  <div 
+                    onClick={() => ollamaStatus.available && toggleOllama()}
+                    className={`p-3 rounded-lg border cursor-pointer transition-colors ${
+                      !ollamaStatus.available ? 'opacity-50 cursor-not-allowed' : ''
+                    } ${
+                      useOllama && ollamaStatus.available ? 'bg-emerald-500/10 border-emerald-500/50' : 'bg-zinc-800/50 border-zinc-700 hover:border-zinc-600'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Terminal size={16} className={useOllama ? 'text-emerald-400' : 'text-zinc-500'} />
+                        <span className="font-medium">Ollama (Lokal)</span>
+                        {ollamaStatus.available ? (
+                          <span className="px-1.5 py-0.5 text-xs bg-emerald-500/20 text-emerald-400 rounded">Verfügbar</span>
+                        ) : (
+                          <span className="px-1.5 py-0.5 text-xs bg-zinc-700 text-zinc-400 rounded">Nicht verbunden</span>
+                        )}
+                      </div>
+                      {useOllama && ollamaStatus.available && <Check size={16} className="text-emerald-400" />}
+                    </div>
+                    <p className="text-xs text-zinc-500 mt-1">
+                      {ollamaStatus.available 
+                        ? `Modelle: ${ollamaStatus.models.join(', ') || 'Keine gefunden'}`
+                        : 'Starte Ollama auf deinem System'
+                      }
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Ollama Info */}
+              {!ollamaStatus.available && (
+                <div className="p-3 bg-zinc-800/50 rounded-lg border border-zinc-700">
+                  <h4 className="text-sm font-medium text-zinc-300 mb-2">Ollama Setup</h4>
+                  <ol className="text-xs text-zinc-500 space-y-1 list-decimal list-inside">
+                    <li>Installiere Ollama: <code className="bg-zinc-700 px-1 rounded">curl -fsSL https://ollama.com/install.sh | sh</code></li>
+                    <li>Starte Ollama: <code className="bg-zinc-700 px-1 rounded">ollama serve</code></li>
+                    <li>Lade ein Modell: <code className="bg-zinc-700 px-1 rounded">ollama pull llama3</code></li>
+                  </ol>
+                </div>
+              )}
+            </div>
+            
+            <div className="flex items-center justify-end gap-3 p-4 border-t border-zinc-800">
+              <button onClick={() => setShowSettings(false)} className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded-md">Schließen</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

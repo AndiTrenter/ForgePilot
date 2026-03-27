@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Taschenrechner</title>
+    <style>
+        body { font-family: Arial, sans-serif; }
+        #calculator { width: 200px; margin: 100px auto; }
+        input[type="button"] { width: 50px; height: 50px; }
+        input[type="text"] { width: 200px; height: 50px; text-align: right; margin-bottom: 10px; }
+        table { width: 100%; border-collapse: collapse; }
+        td { text-align: center; }
+    </style>
+</head>
+<body>
+
+<div id="calculator">
+    <input type="text" id="display" disabled>
+    <br>
+    <table>
+        <tr>
+            <td><input type="button" value="7" onclick="appendNumber('7')"></td>
+            <td><input type="button" value="8" onclick="appendNumber('8')"></td>
+            <td><input type="button" value="9" onclick="appendNumber('9')"></td>
+            <td><input type="button" value="/" onclick="appendOperator('/')"></td>
+        </tr>
+        <tr>
+            <td><input type="button" value="4" onclick="appendNumber('4')"></td>
+            <td><input type="button" value="5" onclick="appendNumber('5')"></td>
+            <td><input type="button" value="6" onclick="appendNumber('6')"></td>
+            <td><input type="button" value="*" onclick="appendOperator('*')"></td>
+        </tr>
+        <tr>
+            <td><input type="button" value="1" onclick="appendNumber('1')"></td>
+            <td><input type="button" value="2" onclick="appendNumber('2')"></td>
+            <td><input type="button" value="3" onclick="appendNumber('3')"></td>
+            <td><input type="button" value="-" onclick="appendOperator('-')"></td>
+        </tr>
+        <tr>
+            <td colspan="2"><input type="button" value="0" onclick="appendNumber('0')"></td>
+            <td><input type="button" value="C" onclick="clearDisplay()"></td>
+            <td><input type="button" value="+" onclick="appendOperator('+')"></td>
+        </tr>
+        <tr>
+            <td colspan="4"><input type="button" value="=" onclick="calculate()"></td>
+        </tr>
+    </table>
+</div>
+
+<script src="calculator.js"></script>
+
+</body>
+</html>
