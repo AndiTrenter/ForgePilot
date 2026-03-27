@@ -8,7 +8,7 @@ import {
   CheckCircle2, Zap, Bug, Eye, X, Code, ListTodo,
   Folder, File, ChevronDown, Save, LayoutPanelLeft, GitCommit,
   Check, Circle, ArrowRight, Lock, Globe, Upload, Search,
-  ExternalLink
+  ExternalLink, Mic, MicOff, Square
 } from "lucide-react";
 import Prism from 'prismjs';
 import 'prismjs/themes/prism-tomorrow.css';
@@ -779,10 +779,73 @@ const Workspace = () => {
   const [agentProgress, setAgentProgress] = useState({ iteration: 0, maxIterations: 20, currentTool: null, isAutonomous: false });
   // Agent Activity Feed - detaillierte Anzeige was gerade passiert
   const [agentActivities, setAgentActivities] = useState([]);
+  // Voice Input State
+  const [isListening, setIsListening] = useState(false);
+  const [speechSupported, setSpeechSupported] = useState(false);
+  const recognitionRef = useRef(null);
   const chatContainerRef = useRef(null);
   const activityContainerRef = useRef(null);
   const pollingRef = useRef(null);
   const iframeRef = useRef(null);
+
+  // Initialize Speech Recognition
+  useEffect(() => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (SpeechRecognition) {
+      setSpeechSupported(true);
+      const recognition = new SpeechRecognition();
+      recognition.continuous = false;
+      recognition.interimResults = true;
+      recognition.lang = 'de-DE';
+      
+      recognition.onresult = (event) => {
+        let finalTranscript = '';
+        let interimTranscript = '';
+        
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const transcript = event.results[i][0].transcript;
+          if (event.results[i].isFinal) {
+            finalTranscript += transcript;
+          } else {
+            interimTranscript += transcript;
+          }
+        }
+        
+        if (finalTranscript) {
+          setInputValue(prev => prev + finalTranscript);
+        } else if (interimTranscript) {
+          // Show interim results in a temporary way
+          setInputValue(prev => {
+            const base = prev.replace(/\[...\]$/, '');
+            return base + interimTranscript;
+          });
+        }
+      };
+      
+      recognition.onerror = (event) => {
+        console.error('Speech recognition error:', event.error);
+        setIsListening(false);
+      };
+      
+      recognition.onend = () => {
+        setIsListening(false);
+      };
+      
+      recognitionRef.current = recognition;
+    }
+  }, []);
+
+  const toggleVoiceInput = () => {
+    if (!recognitionRef.current) return;
+    
+    if (isListening) {
+      recognitionRef.current.stop();
+      setIsListening(false);
+    } else {
+      recognitionRef.current.start();
+      setIsListening(true);
+    }
+  };
 
   // Add activity to feed
   const addActivity = (agent, action, message, details = null) => {
@@ -1246,13 +1309,35 @@ const Workspace = () => {
 
           <div className="p-3 border-t border-zinc-800 bg-zinc-900/50 shrink-0">
             <div className="flex items-end gap-2">
-              <textarea value={inputValue} onChange={(e) => setInputValue(e.target.value)} onKeyDown={handleKeyDown} placeholder="Nachricht an Agent..." rows={2} className="flex-1 bg-zinc-800 border border-zinc-700 text-white px-3 py-2 rounded-md focus:outline-none focus:border-zinc-500 placeholder:text-zinc-600 resize-none text-sm" data-testid="chat-input" />
+              <textarea value={inputValue} onChange={(e) => setInputValue(e.target.value)} onKeyDown={handleKeyDown} placeholder={isListening ? "Sprich jetzt..." : "Nachricht an Agent..."} rows={2} className={`flex-1 bg-zinc-800 border text-white px-3 py-2 rounded-md focus:outline-none placeholder:text-zinc-600 resize-none text-sm transition-colors ${isListening ? 'border-red-500 bg-red-500/10' : 'border-zinc-700 focus:border-zinc-500'}`} data-testid="chat-input" />
+              {speechSupported && (
+                <Tooltip text={isListening ? "Spracherkennung stoppen" : "Spracherkennung starten (Deutsch)"} position="top">
+                  <button 
+                    onClick={toggleVoiceInput} 
+                    disabled={isLoading}
+                    className={`p-2 rounded-md transition-all ${
+                      isListening 
+                        ? 'bg-red-500 text-white animate-pulse hover:bg-red-600' 
+                        : 'bg-zinc-700 text-zinc-300 hover:bg-zinc-600 hover:text-white'
+                    } disabled:opacity-50`} 
+                    data-testid="voice-input-btn"
+                  >
+                    {isListening ? <MicOff size={18} /> : <Mic size={18} />}
+                  </button>
+                </Tooltip>
+              )}
               <Tooltip text="Sendet die Nachricht an den KI-Agenten" position="top">
                 <button onClick={() => sendMessage(inputValue)} disabled={!inputValue.trim() || isLoading} className="p-2 bg-white text-black rounded-md hover:bg-zinc-200 disabled:opacity-50" data-testid="send-message-btn">
                   {isLoading ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
                 </button>
               </Tooltip>
             </div>
+            {isListening && (
+              <div className="flex items-center gap-2 mt-2 text-xs text-red-400">
+                <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+                <span>Aufnahme läuft... Sprich deutlich auf Deutsch</span>
+              </div>
+            )}
           </div>
         </div>
 
