@@ -28,15 +28,43 @@ mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
 
-# OpenAI client
-openai_client = AsyncOpenAI(api_key=os.environ.get('OPENAI_API_KEY'))
+# Settings collection for API keys
+settings_collection = db.settings
 
-# Ollama client (local LLM fallback)
-OLLAMA_URL = os.environ.get('OLLAMA_URL', 'http://localhost:11434')
-USE_OLLAMA = os.environ.get('USE_OLLAMA', 'false').lower() == 'true'
+# Global settings (loaded from DB or env)
+class AppSettings:
+    openai_api_key: str = os.environ.get('OPENAI_API_KEY', '')
+    github_token: str = os.environ.get('GITHUB_TOKEN', '')
+    ollama_url: str = os.environ.get('OLLAMA_URL', 'http://localhost:11434')
+    use_ollama: bool = os.environ.get('USE_OLLAMA', 'false').lower() == 'true'
 
-# GitHub token
-github_token = os.environ.get('GITHUB_TOKEN', '')
+app_settings = AppSettings()
+
+# OpenAI client (will be updated when settings change)
+openai_client = AsyncOpenAI(api_key=app_settings.openai_api_key) if app_settings.openai_api_key else None
+
+# Load settings from database on startup
+async def load_settings_from_db():
+    global openai_client, app_settings
+    saved = await settings_collection.find_one({"_id": "app_settings"})
+    if saved:
+        if saved.get('openai_api_key'):
+            app_settings.openai_api_key = saved['openai_api_key']
+            openai_client = AsyncOpenAI(api_key=app_settings.openai_api_key)
+        if saved.get('github_token'):
+            app_settings.github_token = saved['github_token']
+        if saved.get('ollama_url'):
+            app_settings.ollama_url = saved['ollama_url']
+        if saved.get('use_ollama') is not None:
+            app_settings.use_ollama = saved['use_ollama']
+    logger.info(f"Settings loaded: OpenAI key set: {bool(app_settings.openai_api_key)}, GitHub token set: {bool(app_settings.github_token)}")
+
+# Ollama settings
+OLLAMA_URL = app_settings.ollama_url
+USE_OLLAMA = app_settings.use_ollama
+
+# GitHub token (use from settings)
+github_token = app_settings.github_token
 
 # Workspace base directory
 WORKSPACES_DIR = Path('/app/workspaces')
@@ -49,7 +77,24 @@ api_router = APIRouter(prefix="/api")
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+# Startup event to load settings
+@app.on_event("startup")
+async def startup_event():
+    await load_settings_from_db()
+
 # ============== MODELS ==============
+
+class SettingsUpdate(BaseModel):
+    openai_api_key: Optional[str] = None
+    github_token: Optional[str] = None
+    ollama_url: Optional[str] = None
+    use_ollama: Optional[bool] = None
+
+class SettingsResponse(BaseModel):
+    openai_api_key_set: bool
+    github_token_set: bool
+    ollama_url: str
+    use_ollama: bool
 
 class ProjectCreate(BaseModel):
     name: str
@@ -147,6 +192,89 @@ def get_file_tree(workspace_path: Path, prefix: str = "") -> List[Dict]:
     except Exception as e:
         logger.error(f"Error getting file tree: {e}")
     return items
+
+# ============== SETTINGS ENDPOINTS ==============
+
+@api_router.get("/settings", response_model=SettingsResponse)
+async def get_settings():
+    """Get current settings (without exposing full keys)"""
+    return SettingsResponse(
+        openai_api_key_set=bool(app_settings.openai_api_key),
+        github_token_set=bool(app_settings.github_token),
+        ollama_url=app_settings.ollama_url,
+        use_ollama=app_settings.use_ollama
+    )
+
+@api_router.put("/settings")
+async def update_settings(settings: SettingsUpdate):
+    """Update and save settings"""
+    global openai_client, app_settings, github_token
+    
+    update_data = {}
+    
+    if settings.openai_api_key is not None:
+        app_settings.openai_api_key = settings.openai_api_key
+        update_data['openai_api_key'] = settings.openai_api_key
+        if settings.openai_api_key:
+            openai_client = AsyncOpenAI(api_key=settings.openai_api_key)
+        else:
+            openai_client = None
+    
+    if settings.github_token is not None:
+        app_settings.github_token = settings.github_token
+        github_token = settings.github_token
+        update_data['github_token'] = settings.github_token
+    
+    if settings.ollama_url is not None:
+        app_settings.ollama_url = settings.ollama_url
+        update_data['ollama_url'] = settings.ollama_url
+    
+    if settings.use_ollama is not None:
+        app_settings.use_ollama = settings.use_ollama
+        update_data['use_ollama'] = settings.use_ollama
+    
+    # Save to database
+    if update_data:
+        await settings_collection.update_one(
+            {"_id": "app_settings"},
+            {"$set": update_data},
+            upsert=True
+        )
+    
+    logger.info(f"Settings updated: {list(update_data.keys())}")
+    
+    return {
+        "success": True,
+        "message": "Einstellungen gespeichert",
+        "openai_api_key_set": bool(app_settings.openai_api_key),
+        "github_token_set": bool(app_settings.github_token)
+    }
+
+@api_router.delete("/settings/openai-key")
+async def delete_openai_key():
+    """Delete OpenAI API key"""
+    global openai_client, app_settings
+    app_settings.openai_api_key = ""
+    openai_client = None
+    await settings_collection.update_one(
+        {"_id": "app_settings"},
+        {"$unset": {"openai_api_key": ""}},
+        upsert=True
+    )
+    return {"success": True, "message": "OpenAI API Key gelöscht"}
+
+@api_router.delete("/settings/github-token")
+async def delete_github_token():
+    """Delete GitHub token"""
+    global github_token, app_settings
+    app_settings.github_token = ""
+    github_token = ""
+    await settings_collection.update_one(
+        {"_id": "app_settings"},
+        {"$unset": {"github_token": ""}},
+        upsert=True
+    )
+    return {"success": True, "message": "GitHub Token gelöscht"}
 
 # ============== OPENAI TOOLS ==============
 

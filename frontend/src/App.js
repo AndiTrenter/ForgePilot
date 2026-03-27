@@ -482,6 +482,305 @@ const RoadmapView = ({ items }) => {
   );
 };
 
+// ============== Settings Modal Component ==============
+
+const SettingsModal = ({ isOpen, onClose, ollamaStatus, useOllama, setUseOllama, toggleOllama }) => {
+  const [activeTab, setActiveTab] = useState('api');
+  const [settings, setSettings] = useState({ openai_api_key_set: false, github_token_set: false });
+  const [openaiKey, setOpenaiKey] = useState('');
+  const [githubToken, setGithubToken] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      loadSettings();
+    }
+  }, [isOpen]);
+
+  const loadSettings = async () => {
+    try {
+      const res = await axios.get(`${API}/settings`);
+      setSettings(res.data);
+    } catch (e) {
+      console.error('Failed to load settings');
+    }
+  };
+
+  const saveOpenAIKey = async () => {
+    if (!openaiKey.trim()) return;
+    setSaving(true);
+    setMessage(null);
+    try {
+      await axios.put(`${API}/settings`, { openai_api_key: openaiKey });
+      setSettings(prev => ({ ...prev, openai_api_key_set: true }));
+      setOpenaiKey('');
+      setMessage({ type: 'success', text: 'OpenAI API Key gespeichert!' });
+    } catch (e) {
+      setMessage({ type: 'error', text: 'Fehler beim Speichern' });
+    }
+    setSaving(false);
+  };
+
+  const saveGitHubToken = async () => {
+    if (!githubToken.trim()) return;
+    setSaving(true);
+    setMessage(null);
+    try {
+      await axios.put(`${API}/settings`, { github_token: githubToken });
+      setSettings(prev => ({ ...prev, github_token_set: true }));
+      setGithubToken('');
+      setMessage({ type: 'success', text: 'GitHub Token gespeichert!' });
+    } catch (e) {
+      setMessage({ type: 'error', text: 'Fehler beim Speichern' });
+    }
+    setSaving(false);
+  };
+
+  const deleteOpenAIKey = async () => {
+    if (!window.confirm('OpenAI API Key wirklich löschen?')) return;
+    try {
+      await axios.delete(`${API}/settings/openai-key`);
+      setSettings(prev => ({ ...prev, openai_api_key_set: false }));
+      setMessage({ type: 'success', text: 'OpenAI API Key gelöscht' });
+    } catch (e) {
+      setMessage({ type: 'error', text: 'Fehler beim Löschen' });
+    }
+  };
+
+  const deleteGitHubToken = async () => {
+    if (!window.confirm('GitHub Token wirklich löschen?')) return;
+    try {
+      await axios.delete(`${API}/settings/github-token`);
+      setSettings(prev => ({ ...prev, github_token_set: false }));
+      setMessage({ type: 'success', text: 'GitHub Token gelöscht' });
+    } catch (e) {
+      setMessage({ type: 'error', text: 'Fehler beim Löschen' });
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4" data-testid="settings-modal">
+      <div className="bg-zinc-900 border border-zinc-800 rounded-lg w-full max-w-lg shadow-2xl max-h-[90vh] flex flex-col">
+        <div className="flex items-center justify-between p-4 border-b border-zinc-800 shrink-0">
+          <div className="flex items-center gap-2">
+            <Settings size={20} />
+            <h2 className="text-lg font-medium">Einstellungen</h2>
+          </div>
+          <button onClick={onClose} className="p-1 text-zinc-400 hover:text-white"><X size={20} /></button>
+        </div>
+
+        {/* Tabs */}
+        <div className="flex border-b border-zinc-800 shrink-0">
+          {[
+            { id: 'api', label: 'API Keys', icon: Lock },
+            { id: 'llm', label: 'LLM', icon: Zap },
+            { id: 'shortcuts', label: 'Tastatur', icon: Terminal },
+          ].map(({ id, label, icon: Icon }) => (
+            <button
+              key={id}
+              onClick={() => setActiveTab(id)}
+              className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium transition-colors ${
+                activeTab === id ? 'text-white border-b-2 border-white bg-zinc-800/50' : 'text-zinc-400 hover:text-white'
+              }`}
+            >
+              <Icon size={14} />
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {/* Message */}
+        {message && (
+          <div className={`mx-4 mt-4 p-3 rounded-lg text-sm ${
+            message.type === 'success' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' : 'bg-rose-500/10 text-rose-400 border border-rose-500/30'
+          }`}>
+            {message.text}
+          </div>
+        )}
+
+        <div className="p-4 space-y-6 overflow-y-auto flex-1">
+          {/* API Keys Tab */}
+          {activeTab === 'api' && (
+            <div className="space-y-6">
+              {/* OpenAI API Key */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-sm font-semibold text-zinc-300">OpenAI API Key</h3>
+                  {settings.openai_api_key_set && (
+                    <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 text-xs rounded-full flex items-center gap-1">
+                      <Check size={10} /> Gespeichert
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-zinc-500 mb-3">
+                  Erforderlich für KI-Funktionen. Erstelle deinen Key unter{' '}
+                  <a href="https://platform.openai.com/api-keys" target="_blank" rel="noreferrer" className="text-blue-400 hover:underline">
+                    platform.openai.com/api-keys
+                  </a>
+                </p>
+                <div className="flex gap-2">
+                  <input
+                    type="password"
+                    value={openaiKey}
+                    onChange={(e) => setOpenaiKey(e.target.value)}
+                    placeholder={settings.openai_api_key_set ? '••••••••••••••••' : 'sk-...'}
+                    className="flex-1 bg-zinc-800 border border-zinc-700 rounded-md px-3 py-2 text-sm focus:outline-none focus:border-zinc-500"
+                  />
+                  <button
+                    onClick={saveOpenAIKey}
+                    disabled={!openaiKey.trim() || saving}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-700 disabled:text-zinc-500 text-white rounded-md text-sm font-medium transition-colors"
+                  >
+                    {saving ? <Loader2 size={14} className="animate-spin" /> : 'Speichern'}
+                  </button>
+                </div>
+                {settings.openai_api_key_set && (
+                  <button onClick={deleteOpenAIKey} className="mt-2 text-xs text-rose-400 hover:text-rose-300">
+                    Key löschen
+                  </button>
+                )}
+              </div>
+
+              {/* GitHub Token */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-sm font-semibold text-zinc-300">GitHub Token</h3>
+                  {settings.github_token_set && (
+                    <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 text-xs rounded-full flex items-center gap-1">
+                      <Check size={10} /> Gespeichert
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-zinc-500 mb-3">
+                  Optional für GitHub Import/Push. Erstelle unter{' '}
+                  <a href="https://github.com/settings/tokens" target="_blank" rel="noreferrer" className="text-blue-400 hover:underline">
+                    github.com/settings/tokens
+                  </a>
+                </p>
+                <div className="flex gap-2">
+                  <input
+                    type="password"
+                    value={githubToken}
+                    onChange={(e) => setGithubToken(e.target.value)}
+                    placeholder={settings.github_token_set ? '••••••••••••••••' : 'github_pat_...'}
+                    className="flex-1 bg-zinc-800 border border-zinc-700 rounded-md px-3 py-2 text-sm focus:outline-none focus:border-zinc-500"
+                  />
+                  <button
+                    onClick={saveGitHubToken}
+                    disabled={!githubToken.trim() || saving}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-700 disabled:text-zinc-500 text-white rounded-md text-sm font-medium transition-colors"
+                  >
+                    {saving ? <Loader2 size={14} className="animate-spin" /> : 'Speichern'}
+                  </button>
+                </div>
+                {settings.github_token_set && (
+                  <button onClick={deleteGitHubToken} className="mt-2 text-xs text-rose-400 hover:text-rose-300">
+                    Token löschen
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* LLM Tab */}
+          {activeTab === 'llm' && (
+            <div className="space-y-4">
+              <h3 className="text-sm font-semibold text-zinc-300">LLM Auswahl</h3>
+              <div className="space-y-3">
+                <div 
+                  onClick={() => setUseOllama(false)}
+                  className={`p-3 rounded-lg border cursor-pointer transition-colors ${
+                    !useOllama ? 'bg-blue-500/10 border-blue-500/50' : 'bg-zinc-800/50 border-zinc-700 hover:border-zinc-600'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Zap size={16} className={!useOllama ? 'text-blue-400' : 'text-zinc-500'} />
+                      <span className="font-medium">OpenAI GPT-4o</span>
+                    </div>
+                    {!useOllama && <Check size={16} className="text-blue-400" />}
+                  </div>
+                  <p className="text-xs text-zinc-500 mt-1">Cloud-basiert, beste Qualität</p>
+                </div>
+                
+                <div 
+                  onClick={() => ollamaStatus.available && toggleOllama()}
+                  className={`p-3 rounded-lg border cursor-pointer transition-colors ${
+                    !ollamaStatus.available ? 'opacity-50 cursor-not-allowed' : ''
+                  } ${
+                    useOllama && ollamaStatus.available ? 'bg-emerald-500/10 border-emerald-500/50' : 'bg-zinc-800/50 border-zinc-700 hover:border-zinc-600'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Terminal size={16} className={useOllama ? 'text-emerald-400' : 'text-zinc-500'} />
+                      <span className="font-medium">Ollama (Lokal)</span>
+                      {ollamaStatus.available ? (
+                        <span className="px-1.5 py-0.5 text-xs bg-emerald-500/20 text-emerald-400 rounded">Verfügbar</span>
+                      ) : (
+                        <span className="px-1.5 py-0.5 text-xs bg-zinc-700 text-zinc-400 rounded">Nicht verbunden</span>
+                      )}
+                    </div>
+                    {useOllama && ollamaStatus.available && <Check size={16} className="text-emerald-400" />}
+                  </div>
+                  <p className="text-xs text-zinc-500 mt-1">
+                    {ollamaStatus.available 
+                      ? `Modelle: ${ollamaStatus.models.join(', ') || 'Keine gefunden'}`
+                      : 'Starte Ollama auf deinem System'
+                    }
+                  </p>
+                </div>
+              </div>
+
+              {!ollamaStatus.available && (
+                <div className="p-3 bg-zinc-800/50 rounded-lg border border-zinc-700 mt-4">
+                  <h4 className="text-sm font-medium text-zinc-300 mb-2">Ollama Setup</h4>
+                  <ol className="text-xs text-zinc-500 space-y-1 list-decimal list-inside">
+                    <li>Installiere: <code className="bg-zinc-700 px-1 rounded">curl -fsSL https://ollama.com/install.sh | sh</code></li>
+                    <li>Starte: <code className="bg-zinc-700 px-1 rounded">ollama serve</code></li>
+                    <li>Lade Modell: <code className="bg-zinc-700 px-1 rounded">ollama pull llama3</code></li>
+                  </ol>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Shortcuts Tab */}
+          {activeTab === 'shortcuts' && (
+            <div>
+              <h3 className="text-sm font-semibold text-zinc-300 mb-3">Tastaturkürzel</h3>
+              <div className="space-y-2 text-xs">
+                {[
+                  { keys: 'Ctrl+S', desc: 'Datei speichern' },
+                  { keys: 'Ctrl+Shift+S', desc: 'Alle Dateien speichern' },
+                  { keys: 'Ctrl+P', desc: 'Preview ein/aus' },
+                  { keys: 'Ctrl+B', desc: 'Datei-Explorer ein/aus' },
+                  { keys: 'Ctrl+K', desc: 'Chat fokussieren' },
+                  { keys: 'Ctrl+W', desc: 'Tab schließen' },
+                  { keys: 'Ctrl+Shift+R', desc: 'Preview neu laden' },
+                  { keys: 'Ctrl+,', desc: 'Einstellungen öffnen' },
+                ].map(({ keys, desc }) => (
+                  <div key={keys} className="flex items-center justify-between p-2 bg-zinc-800/50 rounded">
+                    <span className="text-zinc-400">{desc}</span>
+                    <kbd className="px-2 py-0.5 bg-zinc-700 border border-zinc-600 rounded text-zinc-300 font-mono">{keys}</kbd>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+        
+        <div className="flex items-center justify-end gap-3 p-4 border-t border-zinc-800 shrink-0">
+          <button onClick={onClose} className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded-md">Schließen</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ============== Start Screen ==============
 
 const StartScreen = () => {
@@ -1656,107 +1955,14 @@ const Workspace = () => {
 
       {/* Settings Modal */}
       {showSettings && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4" data-testid="settings-modal">
-          <div className="bg-zinc-900 border border-zinc-800 rounded-lg w-full max-w-md shadow-2xl">
-            <div className="flex items-center justify-between p-4 border-b border-zinc-800">
-              <div className="flex items-center gap-2">
-                <Settings size={20} />
-                <h2 className="text-lg font-medium">Einstellungen</h2>
-              </div>
-              <button onClick={() => setShowSettings(false)} className="p-1 text-zinc-400 hover:text-white"><X size={20} /></button>
-            </div>
-            
-            <div className="p-4 space-y-6">
-              {/* LLM Selection */}
-              <div>
-                <h3 className="text-sm font-semibold text-zinc-300 mb-3">LLM Auswahl</h3>
-                <div className="space-y-3">
-                  <div 
-                    onClick={() => setUseOllama(false)}
-                    className={`p-3 rounded-lg border cursor-pointer transition-colors ${
-                      !useOllama ? 'bg-blue-500/10 border-blue-500/50' : 'bg-zinc-800/50 border-zinc-700 hover:border-zinc-600'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <Zap size={16} className={!useOllama ? 'text-blue-400' : 'text-zinc-500'} />
-                        <span className="font-medium">OpenAI GPT-4o</span>
-                      </div>
-                      {!useOllama && <Check size={16} className="text-blue-400" />}
-                    </div>
-                    <p className="text-xs text-zinc-500 mt-1">Cloud-basiert, beste Qualität</p>
-                  </div>
-                  
-                  <div 
-                    onClick={() => ollamaStatus.available && toggleOllama()}
-                    className={`p-3 rounded-lg border cursor-pointer transition-colors ${
-                      !ollamaStatus.available ? 'opacity-50 cursor-not-allowed' : ''
-                    } ${
-                      useOllama && ollamaStatus.available ? 'bg-emerald-500/10 border-emerald-500/50' : 'bg-zinc-800/50 border-zinc-700 hover:border-zinc-600'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <Terminal size={16} className={useOllama ? 'text-emerald-400' : 'text-zinc-500'} />
-                        <span className="font-medium">Ollama (Lokal)</span>
-                        {ollamaStatus.available ? (
-                          <span className="px-1.5 py-0.5 text-xs bg-emerald-500/20 text-emerald-400 rounded">Verfügbar</span>
-                        ) : (
-                          <span className="px-1.5 py-0.5 text-xs bg-zinc-700 text-zinc-400 rounded">Nicht verbunden</span>
-                        )}
-                      </div>
-                      {useOllama && ollamaStatus.available && <Check size={16} className="text-emerald-400" />}
-                    </div>
-                    <p className="text-xs text-zinc-500 mt-1">
-                      {ollamaStatus.available 
-                        ? `Modelle: ${ollamaStatus.models.join(', ') || 'Keine gefunden'}`
-                        : 'Starte Ollama auf deinem System'
-                      }
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Ollama Info */}
-              {!ollamaStatus.available && (
-                <div className="p-3 bg-zinc-800/50 rounded-lg border border-zinc-700">
-                  <h4 className="text-sm font-medium text-zinc-300 mb-2">Ollama Setup</h4>
-                  <ol className="text-xs text-zinc-500 space-y-1 list-decimal list-inside">
-                    <li>Installiere Ollama: <code className="bg-zinc-700 px-1 rounded">curl -fsSL https://ollama.com/install.sh | sh</code></li>
-                    <li>Starte Ollama: <code className="bg-zinc-700 px-1 rounded">ollama serve</code></li>
-                    <li>Lade ein Modell: <code className="bg-zinc-700 px-1 rounded">ollama pull llama3</code></li>
-                  </ol>
-                </div>
-              )}
-
-              {/* Keyboard Shortcuts */}
-              <div>
-                <h3 className="text-sm font-semibold text-zinc-300 mb-3">Tastaturkürzel</h3>
-                <div className="space-y-2 text-xs">
-                  {[
-                    { keys: 'Ctrl+S', desc: 'Datei speichern' },
-                    { keys: 'Ctrl+Shift+S', desc: 'Alle Dateien speichern' },
-                    { keys: 'Ctrl+P', desc: 'Preview ein/aus' },
-                    { keys: 'Ctrl+B', desc: 'Datei-Explorer ein/aus' },
-                    { keys: 'Ctrl+K', desc: 'Chat fokussieren' },
-                    { keys: 'Ctrl+W', desc: 'Tab schließen' },
-                    { keys: 'Ctrl+Shift+R', desc: 'Preview neu laden' },
-                    { keys: 'Ctrl+,', desc: 'Einstellungen öffnen' },
-                  ].map(({ keys, desc }) => (
-                    <div key={keys} className="flex items-center justify-between">
-                      <span className="text-zinc-400">{desc}</span>
-                      <kbd className="px-2 py-0.5 bg-zinc-800 border border-zinc-700 rounded text-zinc-300 font-mono">{keys}</kbd>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-            
-            <div className="flex items-center justify-end gap-3 p-4 border-t border-zinc-800">
-              <button onClick={() => setShowSettings(false)} className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded-md">Schließen</button>
-            </div>
-          </div>
-        </div>
+        <SettingsModal 
+          isOpen={showSettings} 
+          onClose={() => setShowSettings(false)}
+          ollamaStatus={ollamaStatus}
+          useOllama={useOllama}
+          setUseOllama={setUseOllama}
+          toggleOllama={toggleOllama}
+        />
       )}
     </div>
   );
