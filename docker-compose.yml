@@ -1,0 +1,85 @@
+version: '3.8'
+
+# ForgePilot - Docker Compose für Unraid
+# Ein lokales AI-Entwicklungssystem
+
+services:
+  # MongoDB Datenbank
+  mongodb:
+    image: mongo:4.4
+    container_name: forgepilot-mongodb
+    restart: unless-stopped
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - forgepilot-network
+    environment:
+      - MONGO_INITDB_DATABASE=forgepilot
+
+  # Backend API (FastAPI)
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: forgepilot-backend
+    restart: unless-stopped
+    ports:
+      - "8001:8001"
+    volumes:
+      - workspaces:/app/workspaces
+      - ./backend:/app/backend:ro
+    environment:
+      - MONGO_URL=mongodb://mongodb:27017
+      - DB_NAME=forgepilot
+      - CORS_ORIGINS=*
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+    depends_on:
+      - mongodb
+    networks:
+      - forgepilot-network
+
+  # Frontend (React)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: forgepilot-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    environment:
+      - REACT_APP_BACKEND_URL=http://localhost:8001
+    depends_on:
+      - backend
+    networks:
+      - forgepilot-network
+
+  # Nginx Reverse Proxy (optional - für Production)
+  nginx:
+    image: nginx:alpine
+    container_name: forgepilot-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - frontend
+      - backend
+    networks:
+      - forgepilot-network
+    profiles:
+      - production
+
+networks:
+  forgepilot-network:
+    driver: bridge
+
+volumes:
+  mongodb_data:
+    driver: local
+  workspaces:
+    driver: local

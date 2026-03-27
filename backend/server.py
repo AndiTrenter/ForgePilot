@@ -768,6 +768,70 @@ async def update_agent_status_endpoint(project_id: str, agent_type: str, status:
 
 # ============== GITHUB OPERATIONS ==============
 
+@api_router.get("/github/repos")
+async def get_github_repos():
+    """Get list of repositories from GitHub"""
+    if not github_token:
+        raise HTTPException(status_code=400, detail="GitHub Token nicht konfiguriert")
+    
+    try:
+        import httpx
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                "https://api.github.com/user/repos",
+                headers={
+                    "Authorization": f"token {github_token}",
+                    "Accept": "application/vnd.github.v3+json"
+                },
+                params={"per_page": 100, "sort": "updated"}
+            )
+            response.raise_for_status()
+            repos = response.json()
+            
+            return {
+                "repos": [
+                    {
+                        "name": repo["name"],
+                        "full_name": repo["full_name"],
+                        "url": repo["clone_url"],
+                        "default_branch": repo["default_branch"],
+                        "private": repo["private"],
+                        "description": repo.get("description") or ""
+                    }
+                    for repo in repos
+                ]
+            }
+    except Exception as e:
+        logger.error(f"GitHub repos error: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+@api_router.get("/github/branches")
+async def get_github_branches(repo: str = Query(...)):
+    """Get branches for a repository"""
+    if not github_token:
+        raise HTTPException(status_code=400, detail="GitHub Token nicht konfiguriert")
+    
+    try:
+        import httpx
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"https://api.github.com/repos/{repo}/branches",
+                headers={
+                    "Authorization": f"token {github_token}",
+                    "Accept": "application/vnd.github.v3+json"
+                },
+                params={"per_page": 100}
+            )
+            response.raise_for_status()
+            branches = response.json()
+            
+            return {
+                "branches": [branch["name"] for branch in branches]
+            }
+    except Exception as e:
+        logger.error(f"GitHub branches error: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
 @api_router.post("/github/import")
 async def import_from_github(data: GitHubImport):
     """Clone a GitHub repository"""

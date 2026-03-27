@@ -1,14 +1,21 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import "@/App.css";
 import { BrowserRouter, Routes, Route, useNavigate, useParams } from "react-router-dom";
 import axios from "axios";
 import { 
   Send, Loader2, GitBranch, FolderGit2, Play, RefreshCw, 
   Home, Settings, ChevronRight, FileCode, Terminal, 
-  CheckCircle2, Zap, Bug, Eye, Plus, X, Code, ListTodo,
+  CheckCircle2, Zap, Bug, Eye, X, Code, ListTodo,
   Folder, File, ChevronDown, Save, LayoutPanelLeft, GitCommit,
-  Check, Circle, ArrowRight
+  Check, Circle, ArrowRight, Lock, Globe
 } from "lucide-react";
+import Prism from 'prismjs';
+import 'prismjs/themes/prism-tomorrow.css';
+import 'prismjs/components/prism-javascript';
+import 'prismjs/components/prism-css';
+import 'prismjs/components/prism-markup';
+import 'prismjs/components/prism-python';
+import 'prismjs/components/prism-json';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -27,6 +34,8 @@ const api = {
   saveFile: (projectId, path, content) => axios.put(`${API}/projects/${projectId}/files`, { path, content }),
   importGitHub: (data) => axios.post(`${API}/github/import`, data),
   commitGitHub: (data) => axios.post(`${API}/github/commit`, data),
+  getGitHubRepos: () => axios.get(`${API}/github/repos`),
+  getGitHubBranches: (repo) => axios.get(`${API}/github/branches`, { params: { repo } }),
 };
 
 // ============== Simple Components ==============
@@ -95,11 +104,8 @@ const FileTreeView = ({ items, onSelect, selectedPath }) => {
   const toggleFolder = (path) => {
     setOpenFolders(prev => {
       const next = new Set(prev);
-      if (next.has(path)) {
-        next.delete(path);
-      } else {
-        next.add(path);
-      }
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
       return next;
     });
   };
@@ -118,13 +124,7 @@ const FileTreeView = ({ items, onSelect, selectedPath }) => {
               isSelected ? "bg-zinc-800 text-white" : "text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200"
             }`}
             style={{ paddingLeft: `${item.depth * 12 + 8}px` }}
-            onClick={() => {
-              if (isFolder) {
-                toggleFolder(item.path);
-              } else {
-                onSelect(item.path);
-              }
-            }}
+            onClick={() => isFolder ? toggleFolder(item.path) : onSelect(item.path)}
           >
             {isFolder ? (
               <React.Fragment>
@@ -142,6 +142,57 @@ const FileTreeView = ({ items, onSelect, selectedPath }) => {
   );
 };
 
+// Syntax Highlighted Code Editor
+const SyntaxEditor = ({ content, onChange, language = "javascript", readOnly = false }) => {
+  const textareaRef = useRef(null);
+  const highlightRef = useRef(null);
+  
+  const getLanguage = (lang) => {
+    const map = { js: 'javascript', jsx: 'javascript', ts: 'javascript', tsx: 'javascript', py: 'python', html: 'markup', css: 'css', json: 'json' };
+    return map[lang] || lang || 'javascript';
+  };
+
+  const highlighted = React.useMemo(() => {
+    try {
+      const lang = getLanguage(language);
+      if (Prism.languages[lang]) {
+        return Prism.highlight(content || '', Prism.languages[lang], lang);
+      }
+    } catch (e) {}
+    return content;
+  }, [content, language]);
+
+  const handleScroll = (e) => {
+    if (highlightRef.current) {
+      highlightRef.current.scrollTop = e.target.scrollTop;
+      highlightRef.current.scrollLeft = e.target.scrollLeft;
+    }
+  };
+
+  return (
+    <div className="relative h-full w-full bg-zinc-950 font-mono text-sm overflow-hidden">
+      <pre 
+        ref={highlightRef}
+        className="absolute inset-0 p-4 overflow-auto pointer-events-none m-0 whitespace-pre-wrap break-words"
+        style={{ color: 'transparent' }}
+        aria-hidden="true"
+      >
+        <code dangerouslySetInnerHTML={{ __html: highlighted }} className="text-zinc-200" />
+      </pre>
+      <textarea
+        ref={textareaRef}
+        value={content}
+        onChange={(e) => onChange(e.target.value)}
+        onScroll={handleScroll}
+        readOnly={readOnly}
+        className="absolute inset-0 w-full h-full bg-transparent text-transparent caret-white p-4 resize-none focus:outline-none leading-relaxed whitespace-pre-wrap break-words"
+        spellCheck={false}
+        data-testid="code-editor-textarea"
+      />
+    </div>
+  );
+};
+
 const ChatMessage = ({ message }) => {
   const isUser = message.role === "user";
   
@@ -152,8 +203,17 @@ const ChatMessage = ({ message }) => {
     return parts.map((part, index) => {
       if (part.startsWith('```')) {
         const lines = part.slice(3, -3).split('\n');
-        const language = lines[0] || '';
+        const language = lines[0] || 'javascript';
         const code = lines.slice(1).join('\n');
+        
+        let highlighted = code;
+        try {
+          const lang = language === 'html' ? 'markup' : language;
+          if (Prism.languages[lang]) {
+            highlighted = Prism.highlight(code, Prism.languages[lang], lang);
+          }
+        } catch (e) {}
+        
         return (
           <div key={index} className="my-3 rounded-lg overflow-hidden border border-zinc-800">
             {language && (
@@ -161,8 +221,8 @@ const ChatMessage = ({ message }) => {
                 {language}
               </div>
             )}
-            <pre className="bg-zinc-900 p-3 overflow-x-auto">
-              <code className="text-sm text-zinc-300 font-mono">{code}</code>
+            <pre className="bg-zinc-900 p-3 overflow-x-auto m-0">
+              <code className="text-sm font-mono" dangerouslySetInnerHTML={{ __html: highlighted }} />
             </pre>
           </div>
         );
@@ -171,29 +231,17 @@ const ChatMessage = ({ message }) => {
     });
   };
   
-  const icons = {
-    orchestrator: Zap,
-    planner: ListTodo,
-    coder: Code,
-  };
+  const icons = { orchestrator: Zap, planner: ListTodo, coder: Code };
   const AgentIcon = icons[message.agent_type] || Zap;
   
   return (
     <div className={`chat-message animate-fade-in flex ${isUser ? "justify-end" : "justify-start"}`}>
-      <div 
-        className={`max-w-[90%] ${
-          isUser 
-            ? "bg-zinc-800 border border-zinc-700 text-zinc-100 p-4 rounded-xl rounded-tr-sm" 
-            : "text-zinc-300 p-0"
-        }`}
-      >
+      <div className={`max-w-[90%] ${isUser ? "bg-zinc-800 border border-zinc-700 text-zinc-100 p-4 rounded-xl rounded-tr-sm" : "text-zinc-300 p-0"}`}>
         {!isUser && (
           <div className="flex items-center gap-2 mb-2 text-xs text-zinc-500">
             <AgentIcon size={12} />
             <span className="capitalize">{message.agent_type || "Orchestrator"}</span>
-            {message.files_created?.length > 0 && (
-              <span className="text-emerald-400 ml-2">+{message.files_created.length} Dateien</span>
-            )}
+            {message.files_created?.length > 0 && <span className="text-emerald-400 ml-2">+{message.files_created.length} Dateien</span>}
           </div>
         )}
         <div className="markdown-content">{formatContent(message.content)}</div>
@@ -203,12 +251,7 @@ const ChatMessage = ({ message }) => {
 };
 
 const LogEntry = ({ log }) => {
-  const levelColors = {
-    info: "text-zinc-400",
-    success: "text-emerald-400",
-    warning: "text-amber-400",
-    error: "text-rose-400",
-  };
+  const levelColors = { info: "text-zinc-400", success: "text-emerald-400", warning: "text-amber-400", error: "text-rose-400" };
   const levelIcons = { info: "○", success: "✓", warning: "⚠", error: "✕" };
 
   return (
@@ -315,49 +358,23 @@ const StartScreen = () => {
       <main className="flex-1 flex flex-col items-center justify-center p-6 sm:p-12 md:p-24">
         <div className="max-w-3xl w-full flex flex-col items-center space-y-12">
           <div className="text-center space-y-4">
-            <h1 className="text-4xl sm:text-5xl font-medium tracking-tighter text-zinc-50">
-              Was möchtest du bauen?
-            </h1>
-            <p className="text-lg text-zinc-500">
-              Beschreibe dein Projekt. ForgePilot plant, entwickelt und testet es für dich.
-            </p>
+            <h1 className="text-4xl sm:text-5xl font-medium tracking-tighter text-zinc-50">Was möchtest du bauen?</h1>
+            <p className="text-lg text-zinc-500">Beschreibe dein Projekt. ForgePilot plant, entwickelt und testet es für dich.</p>
           </div>
 
           <div className="flex items-center gap-2 p-1 bg-zinc-900 rounded-lg border border-zinc-800">
             {projectTypes.map(({ id, label, icon: Icon }) => (
-              <button
-                key={id}
-                onClick={() => setProjectType(id)}
-                className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${
-                  projectType === id ? "bg-zinc-800 text-white" : "text-zinc-400 hover:text-zinc-200"
-                }`}
-                data-testid={`project-type-${id}`}
-              >
-                <Icon size={16} />
-                {label}
+              <button key={id} onClick={() => setProjectType(id)} className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${projectType === id ? "bg-zinc-800 text-white" : "text-zinc-400 hover:text-zinc-200"}`} data-testid={`project-type-${id}`}>
+                <Icon size={16} />{label}
               </button>
             ))}
           </div>
 
-          <div className="w-full bg-zinc-900 border border-zinc-800 rounded-lg shadow-2xl overflow-hidden focus-within:border-zinc-600 transition-colors duration-300" data-testid="prompt-container">
-            <textarea
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Beschreibe dein Projekt in natürlicher Sprache...
-
-Beispiel: Baue mir eine Todo-App mit HTML, CSS und JavaScript."
-              className="w-full min-h-[200px] bg-transparent p-6 text-lg placeholder:text-zinc-600 focus:outline-none"
-              data-testid="main-prompt-input"
-            />
+          <div className="w-full bg-zinc-900 border border-zinc-800 rounded-lg shadow-2xl overflow-hidden focus-within:border-zinc-600 transition-colors" data-testid="prompt-container">
+            <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} onKeyDown={handleKeyDown} placeholder="Beschreibe dein Projekt in natürlicher Sprache..." className="w-full min-h-[200px] bg-transparent p-6 text-lg placeholder:text-zinc-600 focus:outline-none" data-testid="main-prompt-input" />
             <div className="flex items-center justify-between p-4 border-t border-zinc-800 bg-zinc-900/50">
               <span className="text-xs text-zinc-500">⌘ + Enter zum Starten</span>
-              <button
-                onClick={handleSubmit}
-                disabled={!prompt.trim() || isLoading}
-                className="flex items-center gap-2 bg-white text-black hover:bg-zinc-200 font-medium px-5 py-2.5 rounded-md transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                data-testid="submit-prompt-btn"
-              >
+              <button onClick={handleSubmit} disabled={!prompt.trim() || isLoading} className="flex items-center gap-2 bg-white text-black hover:bg-zinc-200 font-medium px-5 py-2.5 rounded-md transition-all disabled:opacity-50 disabled:cursor-not-allowed" data-testid="submit-prompt-btn">
                 {isLoading ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
                 <span>Projekt starten</span>
               </button>
@@ -369,15 +386,8 @@ Beispiel: Baue mir eine Todo-App mit HTML, CSS und JavaScript."
               <h3 className="text-sm font-semibold uppercase tracking-widest text-zinc-500">Aktuelle Projekte</h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 {recentProjects.map((project) => (
-                  <button
-                    key={project.id}
-                    onClick={() => navigate(`/workspace/${project.id}`)}
-                    className="flex items-center gap-3 p-4 bg-zinc-900 border border-zinc-800 rounded-lg text-left hover:border-zinc-700 hover:bg-zinc-800/50 transition-all group"
-                    data-testid={`recent-project-${project.id}`}
-                  >
-                    <div className="w-10 h-10 bg-zinc-800 rounded-md flex items-center justify-center text-zinc-400 group-hover:text-white transition-colors">
-                      <FileCode size={20} />
-                    </div>
+                  <button key={project.id} onClick={() => navigate(`/workspace/${project.id}`)} className="flex items-center gap-3 p-4 bg-zinc-900 border border-zinc-800 rounded-lg text-left hover:border-zinc-700 hover:bg-zinc-800/50 transition-all group" data-testid={`recent-project-${project.id}`}>
+                    <div className="w-10 h-10 bg-zinc-800 rounded-md flex items-center justify-center text-zinc-400 group-hover:text-white transition-colors"><FileCode size={20} /></div>
                     <div className="flex-1 min-w-0">
                       <p className="font-medium text-zinc-200 truncate">{project.name}</p>
                       <p className="text-xs text-zinc-500">{project.project_type}</p>
@@ -391,37 +401,83 @@ Beispiel: Baue mir eine Todo-App mit HTML, CSS und JavaScript."
         </div>
       </main>
 
-      {showGitHubModal && (
-        <GitHubImportModal onClose={() => setShowGitHubModal(false)} onImport={(p) => { setShowGitHubModal(false); navigate(`/workspace/${p.id}`); }} />
-      )}
+      {showGitHubModal && <GitHubImportModal onClose={() => setShowGitHubModal(false)} onImport={(p) => { setShowGitHubModal(false); navigate(`/workspace/${p.id}`); }} />}
     </div>
   );
 };
 
-// ============== GitHub Import Modal ==============
+// ============== GitHub Import Modal with Dropdowns ==============
 
 const GitHubImportModal = ({ onClose, onImport }) => {
-  const [repoUrl, setRepoUrl] = useState("");
-  const [branch, setBranch] = useState("main");
-  const [isLoading, setIsLoading] = useState(false);
+  const [repos, setRepos] = useState([]);
+  const [branches, setBranches] = useState([]);
+  const [selectedRepo, setSelectedRepo] = useState(null);
+  const [selectedBranch, setSelectedBranch] = useState("");
+  const [isLoadingRepos, setIsLoadingRepos] = useState(true);
+  const [isLoadingBranches, setIsLoadingBranches] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
   const [error, setError] = useState("");
+  const [manualUrl, setManualUrl] = useState("");
+  const [useManualUrl, setUseManualUrl] = useState(false);
+
+  useEffect(() => {
+    loadRepos();
+  }, []);
+
+  const loadRepos = async () => {
+    setIsLoadingRepos(true);
+    try {
+      const res = await api.getGitHubRepos();
+      setRepos(res.data.repos || []);
+    } catch (e) {
+      setError("Repos konnten nicht geladen werden");
+    } finally {
+      setIsLoadingRepos(false);
+    }
+  };
+
+  const loadBranches = async (repoFullName) => {
+    setIsLoadingBranches(true);
+    setBranches([]);
+    try {
+      const res = await api.getGitHubBranches(repoFullName);
+      setBranches(res.data.branches || []);
+      const repo = repos.find(r => r.full_name === repoFullName);
+      if (repo) setSelectedBranch(repo.default_branch);
+    } catch (e) {
+      setError("Branches konnten nicht geladen werden");
+    } finally {
+      setIsLoadingBranches(false);
+    }
+  };
+
+  const handleRepoSelect = (repoFullName) => {
+    const repo = repos.find(r => r.full_name === repoFullName);
+    setSelectedRepo(repo);
+    setSelectedBranch("");
+    if (repo) loadBranches(repo.full_name);
+  };
 
   const handleImport = async () => {
-    if (!repoUrl.trim()) return;
-    setIsLoading(true);
+    const url = useManualUrl ? manualUrl : selectedRepo?.url;
+    const branch = useManualUrl ? "main" : selectedBranch;
+    
+    if (!url) return;
+    
+    setIsImporting(true);
     setError("");
     try {
-      const res = await api.importGitHub({ repo_url: repoUrl, branch });
+      const res = await api.importGitHub({ repo_url: url, branch });
       onImport(res.data);
     } catch (e) {
       setError(e.response?.data?.detail || "Import fehlgeschlagen");
-      setIsLoading(false);
+      setIsImporting(false);
     }
   };
 
   return (
     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4" data-testid="github-import-modal">
-      <div className="bg-zinc-900 border border-zinc-800 rounded-lg w-full max-w-md shadow-2xl">
+      <div className="bg-zinc-900 border border-zinc-800 rounded-lg w-full max-w-lg shadow-2xl">
         <div className="flex items-center justify-between p-4 border-b border-zinc-800">
           <div className="flex items-center gap-2">
             <FolderGit2 size={20} />
@@ -429,21 +485,107 @@ const GitHubImportModal = ({ onClose, onImport }) => {
           </div>
           <button onClick={onClose} className="p-1 text-zinc-400 hover:text-white"><X size={20} /></button>
         </div>
+        
         <div className="p-4 space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-zinc-400 mb-2">Repository URL</label>
-            <input type="text" value={repoUrl} onChange={(e) => setRepoUrl(e.target.value)} placeholder="https://github.com/user/repo" className="w-full bg-zinc-800 border border-zinc-700 text-white px-3 py-2.5 rounded-md focus:outline-none focus:border-zinc-500 placeholder:text-zinc-600" data-testid="github-repo-url-input" />
+          {/* Toggle between dropdown and manual URL */}
+          <div className="flex gap-2">
+            <button onClick={() => setUseManualUrl(false)} className={`flex-1 py-2 rounded-md text-sm font-medium transition-colors ${!useManualUrl ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-zinc-200'}`}>
+              Meine Repos
+            </button>
+            <button onClick={() => setUseManualUrl(true)} className={`flex-1 py-2 rounded-md text-sm font-medium transition-colors ${useManualUrl ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-zinc-200'}`}>
+              URL eingeben
+            </button>
           </div>
-          <div>
-            <label className="block text-sm font-medium text-zinc-400 mb-2">Branch</label>
-            <input type="text" value={branch} onChange={(e) => setBranch(e.target.value)} placeholder="main" className="w-full bg-zinc-800 border border-zinc-700 text-white px-3 py-2.5 rounded-md focus:outline-none focus:border-zinc-500 placeholder:text-zinc-600" data-testid="github-branch-input" />
-          </div>
+
+          {useManualUrl ? (
+            <div>
+              <label className="block text-sm font-medium text-zinc-400 mb-2">Repository URL</label>
+              <input type="text" value={manualUrl} onChange={(e) => setManualUrl(e.target.value)} placeholder="https://github.com/user/repo" className="w-full bg-zinc-800 border border-zinc-700 text-white px-3 py-2.5 rounded-md focus:outline-none focus:border-zinc-500 placeholder:text-zinc-600" data-testid="github-repo-url-input" />
+            </div>
+          ) : (
+            <React.Fragment>
+              {/* Repository Dropdown */}
+              <div>
+                <label className="block text-sm font-medium text-zinc-400 mb-2">Repository auswählen</label>
+                {isLoadingRepos ? (
+                  <div className="flex items-center gap-2 text-zinc-500 py-2">
+                    <Loader2 size={16} className="animate-spin" />
+                    <span>Lade Repositories...</span>
+                  </div>
+                ) : (
+                  <div className="relative">
+                    <select
+                      value={selectedRepo?.full_name || ""}
+                      onChange={(e) => handleRepoSelect(e.target.value)}
+                      className="w-full bg-zinc-800 border border-zinc-700 text-white px-3 py-2.5 rounded-md focus:outline-none focus:border-zinc-500 appearance-none cursor-pointer"
+                      data-testid="github-repo-select"
+                    >
+                      <option value="">-- Repository wählen --</option>
+                      {repos.map((repo) => (
+                        <option key={repo.full_name} value={repo.full_name}>
+                          {repo.private ? "🔒 " : "🌐 "}{repo.full_name}
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 pointer-events-none" />
+                  </div>
+                )}
+              </div>
+
+              {/* Selected Repo Info */}
+              {selectedRepo && (
+                <div className="p-3 bg-zinc-800/50 rounded-md border border-zinc-700">
+                  <div className="flex items-center gap-2 text-sm">
+                    {selectedRepo.private ? <Lock size={14} className="text-amber-400" /> : <Globe size={14} className="text-emerald-400" />}
+                    <span className="font-medium text-zinc-200">{selectedRepo.name}</span>
+                    <span className="text-zinc-500">({selectedRepo.private ? "privat" : "öffentlich"})</span>
+                  </div>
+                  {selectedRepo.description && <p className="text-xs text-zinc-400 mt-1">{selectedRepo.description}</p>}
+                </div>
+              )}
+
+              {/* Branch Dropdown */}
+              {selectedRepo && (
+                <div>
+                  <label className="block text-sm font-medium text-zinc-400 mb-2">Branch auswählen</label>
+                  {isLoadingBranches ? (
+                    <div className="flex items-center gap-2 text-zinc-500 py-2">
+                      <Loader2 size={16} className="animate-spin" />
+                      <span>Lade Branches...</span>
+                    </div>
+                  ) : (
+                    <div className="relative">
+                      <select
+                        value={selectedBranch}
+                        onChange={(e) => setSelectedBranch(e.target.value)}
+                        className="w-full bg-zinc-800 border border-zinc-700 text-white px-3 py-2.5 rounded-md focus:outline-none focus:border-zinc-500 appearance-none cursor-pointer"
+                        data-testid="github-branch-select"
+                      >
+                        <option value="">-- Branch wählen --</option>
+                        {branches.map((branch) => (
+                          <option key={branch} value={branch}>{branch}</option>
+                        ))}
+                      </select>
+                      <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 pointer-events-none" />
+                    </div>
+                  )}
+                </div>
+              )}
+            </React.Fragment>
+          )}
+          
           {error && <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-md text-rose-400 text-sm">{error}</div>}
         </div>
+        
         <div className="flex items-center justify-end gap-3 p-4 border-t border-zinc-800">
           <button onClick={onClose} className="px-4 py-2 text-zinc-400 hover:text-white">Abbrechen</button>
-          <button onClick={handleImport} disabled={!repoUrl.trim() || isLoading} className="flex items-center gap-2 bg-white text-black hover:bg-zinc-200 font-medium px-4 py-2 rounded-md disabled:opacity-50" data-testid="github-import-confirm-btn">
-            {isLoading ? <Loader2 size={16} className="animate-spin" /> : <GitBranch size={16} />}
+          <button
+            onClick={handleImport}
+            disabled={(useManualUrl ? !manualUrl.trim() : (!selectedRepo || !selectedBranch)) || isImporting}
+            className="flex items-center gap-2 bg-white text-black hover:bg-zinc-200 font-medium px-4 py-2 rounded-md disabled:opacity-50"
+            data-testid="github-import-confirm-btn"
+          >
+            {isImporting ? <Loader2 size={16} className="animate-spin" /> : <GitBranch size={16} />}
             Importieren
           </button>
         </div>
@@ -470,7 +612,8 @@ const Workspace = () => {
   const [fileContent, setFileContent] = useState("");
   const [isFileDirty, setIsFileDirty] = useState(false);
   const [showFileExplorer, setShowFileExplorer] = useState(true);
-  const chatEndRef = useRef(null);
+  const [autoScroll, setAutoScroll] = useState(false);
+  const chatContainerRef = useRef(null);
   const pollingRef = useRef(null);
 
   useEffect(() => {
@@ -479,9 +622,7 @@ const Workspace = () => {
     return () => { if (pollingRef.current) clearInterval(pollingRef.current); };
   }, [projectId]);
 
-  useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  // NO auto-scroll - user controls scroll position
 
   const loadProjectData = async () => {
     try {
@@ -542,6 +683,11 @@ const Workspace = () => {
       setIsFileDirty(false);
       refreshData();
     } catch (e) {}
+  };
+
+  const getFileLanguage = (path) => {
+    const ext = path?.split('.').pop()?.toLowerCase() || '';
+    return ext;
   };
 
   const sendMessage = async (content) => {
@@ -610,6 +756,12 @@ const Workspace = () => {
     }
   };
 
+  const scrollToBottom = () => {
+    if (chatContainerRef.current) {
+      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+    }
+  };
+
   if (!project) {
     return <div className="min-h-screen bg-zinc-950 flex items-center justify-center"><Loader2 size={32} className="animate-spin text-zinc-500" /></div>;
   }
@@ -665,7 +817,8 @@ const Workspace = () => {
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-4 space-y-4" data-testid="chat-message-list">
+          {/* Chat Messages - NO AUTO-SCROLL */}
+          <div ref={chatContainerRef} className="flex-1 overflow-y-auto p-4 space-y-4" data-testid="chat-message-list">
             {messages.map((message) => <ChatMessage key={message.id} message={message} />)}
             {isLoading && messages[messages.length - 1]?.role === "user" && (
               <div className="flex items-center gap-2 text-zinc-500">
@@ -673,20 +826,19 @@ const Workspace = () => {
                 <span className="text-sm">Agent arbeitet...</span>
               </div>
             )}
-            <div ref={chatEndRef} />
           </div>
 
+          {/* Scroll to bottom button */}
+          <div className="px-3 py-1 border-t border-zinc-800/50">
+            <button onClick={scrollToBottom} className="w-full text-xs text-zinc-500 hover:text-zinc-300 py-1 transition-colors">
+              ↓ Zum Ende scrollen
+            </button>
+          </div>
+
+          {/* Chat Input */}
           <div className="p-3 border-t border-zinc-800 bg-zinc-900/50">
             <div className="flex items-end gap-2">
-              <textarea
-                value={inputValue}
-                onChange={(e) => setInputValue(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="Nachricht an Agent..."
-                rows={2}
-                className="flex-1 bg-zinc-800 border border-zinc-700 text-white px-3 py-2 rounded-md focus:outline-none focus:border-zinc-500 placeholder:text-zinc-600 resize-none text-sm"
-                data-testid="chat-input"
-              />
+              <textarea value={inputValue} onChange={(e) => setInputValue(e.target.value)} onKeyDown={handleKeyDown} placeholder="Nachricht an Agent..." rows={2} className="flex-1 bg-zinc-800 border border-zinc-700 text-white px-3 py-2 rounded-md focus:outline-none focus:border-zinc-500 placeholder:text-zinc-600 resize-none text-sm" data-testid="chat-input" />
               <button onClick={() => sendMessage(inputValue)} disabled={!inputValue.trim() || isLoading} className="p-2 bg-white text-black rounded-md hover:bg-zinc-200 disabled:opacity-50" data-testid="send-message-btn">
                 {isLoading ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
               </button>
@@ -704,12 +856,7 @@ const Workspace = () => {
                 { id: "logs", label: "Logs", icon: Terminal },
                 { id: "roadmap", label: "Roadmap", icon: ListTodo },
               ].map(({ id, label, icon: Icon }) => (
-                <button
-                  key={id}
-                  onClick={() => setActiveTab(id)}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border-b-2 transition-all ${activeTab === id ? "border-white text-white" : "border-transparent text-zinc-400 hover:text-zinc-100"}`}
-                  data-testid={`tab-${id}`}
-                >
+                <button key={id} onClick={() => setActiveTab(id)} className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border-b-2 transition-all ${activeTab === id ? "border-white text-white" : "border-transparent text-zinc-400 hover:text-zinc-100"}`} data-testid={`tab-${id}`}>
                   <Icon size={12} />
                   <span className="max-w-[120px] truncate">{label}</span>
                   {id === "editor" && isFileDirty && <span className="w-2 h-2 bg-amber-400 rounded-full" />}
@@ -745,7 +892,7 @@ const Workspace = () => {
                         </div>
                         <div>
                           <p className="font-medium text-zinc-300">Projekt bereit</p>
-                          <p className="text-sm text-zinc-500">{fileTree.length} Dateien erstellt</p>
+                          <p className="text-sm text-zinc-500">{fileTree.length} Elemente erstellt</p>
                         </div>
                       </div>
                     ) : (
@@ -764,12 +911,10 @@ const Workspace = () => {
             {activeTab === "editor" && (
               <div className="h-full" data-testid="editor-panel">
                 {selectedFile ? (
-                  <textarea
-                    value={fileContent}
-                    onChange={(e) => { setFileContent(e.target.value); setIsFileDirty(true); }}
-                    className="w-full h-full bg-zinc-950 text-zinc-200 p-4 resize-none focus:outline-none font-mono text-sm"
-                    spellCheck={false}
-                    data-testid="code-editor-textarea"
+                  <SyntaxEditor
+                    content={fileContent}
+                    onChange={(val) => { setFileContent(val); setIsFileDirty(true); }}
+                    language={getFileLanguage(selectedFile)}
                   />
                 ) : (
                   <div className="h-full flex items-center justify-center text-zinc-600">
