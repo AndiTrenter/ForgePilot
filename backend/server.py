@@ -18,6 +18,7 @@ import shutil
 import aiofiles
 import subprocess
 import re
+from duckduckgo_search import DDGS
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -337,6 +338,50 @@ AGENT_TOOLS = [
                 "required": ["title", "status"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "web_search",
+            "description": "Search the web for code examples, best practices, tutorials and documentation. Use this to find existing solutions and patterns before implementing features.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "The search query (e.g., 'React todo app best practices', 'modern CSS grid layout examples')"
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Maximum number of results to return (default 5)",
+                        "default": 5
+                    }
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "mark_ready_for_push",
+            "description": "Mark the project as ready for GitHub push after testing is complete",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "commit_message": {
+                        "type": "string",
+                        "description": "The commit message for the push"
+                    },
+                    "tested_features": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of features that have been tested"
+                    }
+                },
+                "required": ["commit_message", "tested_features"]
+            }
+        }
     }
 ]
 
@@ -437,6 +482,51 @@ async def execute_tool(tool_name: str, arguments: dict, workspace_path: Path, pr
             if result.modified_count > 0:
                 return f"Roadmap-Status aktualisiert: {arguments['title']} -> {arguments['status']}"
             return f"Roadmap-Eintrag nicht gefunden: {arguments['title']}"
+        
+        elif tool_name == "web_search":
+            query = arguments["query"]
+            max_results = arguments.get("max_results", 5)
+            await add_log(project_id, "info", f"Web-Suche: {query}", "planner")
+            
+            try:
+                results = []
+                with DDGS() as ddgs:
+                    for r in ddgs.text(query, max_results=max_results):
+                        results.append({
+                            "title": r.get("title", ""),
+                            "url": r.get("href", ""),
+                            "snippet": r.get("body", "")[:300]
+                        })
+                
+                if not results:
+                    return f"Keine Ergebnisse für: {query}"
+                
+                output = f"Web-Suche: {query}\n\n"
+                for i, r in enumerate(results, 1):
+                    output += f"{i}. {r['title']}\n   URL: {r['url']}\n   {r['snippet']}\n\n"
+                
+                await add_log(project_id, "success", f"Web-Suche: {len(results)} Ergebnisse gefunden", "planner")
+                return output
+            except Exception as e:
+                return f"Web-Suche fehlgeschlagen: {str(e)}"
+        
+        elif tool_name == "mark_ready_for_push":
+            commit_message = arguments["commit_message"]
+            tested_features = arguments.get("tested_features", [])
+            
+            # Update project status
+            await db.projects.update_one(
+                {"id": project_id},
+                {"$set": {
+                    "status": "ready_for_push",
+                    "pending_commit_message": commit_message,
+                    "tested_features": tested_features,
+                    "updated_at": datetime.now(timezone.utc).isoformat()
+                }}
+            )
+            
+            await add_log(project_id, "success", f"Projekt bereit für Push: {commit_message}", "git")
+            return f"Projekt markiert als bereit für Push!\n\nCommit Message: {commit_message}\nGetestete Features:\n- " + "\n- ".join(tested_features)
         
         return f"Unbekanntes Tool: {tool_name}"
     
@@ -588,22 +678,27 @@ AKTUELLE DATEIEN IM PROJEKT:
 {files_context}
 
 DEINE FÄHIGKEITEN:
-1. Dateien erstellen und bearbeiten (create_file, modify_file)
-2. Dateien lesen und auflisten (read_file, list_files)
-3. Befehle ausführen (run_command) - z.B. npm install, pip install
-4. Roadmap erstellen und verwalten (create_roadmap, update_roadmap_status)
+1. Web-Recherche (web_search) - NUTZE DIES ZUERST um Best Practices, Beispiele und Patterns zu finden
+2. Dateien erstellen und bearbeiten (create_file, modify_file)
+3. Dateien lesen und auflisten (read_file, list_files)
+4. Befehle ausführen (run_command) - z.B. npm install, pip install
+5. Roadmap erstellen und verwalten (create_roadmap, update_roadmap_status)
+6. Projekt als fertig markieren (mark_ready_for_push) - wenn alles getestet ist
 
-ARBEITSWEISE:
-1. Analysiere die Anforderungen des Nutzers
-2. Erstelle einen Plan (Roadmap)
-3. Implementiere die Lösung schrittweise
-4. Erstelle alle notwendigen Dateien
-5. Erkläre was du tust
+ARBEITSWEISE - BEST PRACTICES:
+1. **RECHERCHIERE ZUERST**: Nutze web_search um existierende Lösungen, Best Practices und Beispiele zu finden
+2. Analysiere die Anforderungen des Nutzers
+3. Erstelle einen Plan (Roadmap) basierend auf gefundenen Best Practices
+4. Implementiere die Lösung schrittweise mit modernem, bewährtem Code
+5. Erkläre was du tust und warum (zeige Quellen)
+6. Wenn das Projekt fertig und getestet ist, nutze mark_ready_for_push
 
 WICHTIG:
+- Erfinde das Rad nicht neu - suche nach existierenden Lösungen
+- Nutze moderne Best Practices (z.B. CSS Grid, Flexbox, ES6+)
 - Erstelle immer vollständige, funktionsfähige Dateien
 - Bei Web-Projekten: Erstelle index.html, styles.css, und app.js
-- Bei React-Projekten: Erstelle die komplette Projektstruktur
+- Die Preview zeigt das Ergebnis live an - achte auf gutes Design
 - Antworte auf Deutsch
 - Zeige dem Nutzer den erstellten Code"""
 
@@ -1052,6 +1147,136 @@ async def delete_workspace_file(project_id: str, path: str = Query(...)):
 async def create_new_file(project_id: str, data: FileCreate):
     """Create a new file"""
     return await save_workspace_file(project_id, data)
+
+# ============== LIVE PREVIEW ==============
+
+@api_router.get("/projects/{project_id}/preview/{file_path:path}")
+async def serve_preview_file(project_id: str, file_path: str = "index.html"):
+    """Serve files from workspace for live preview"""
+    project = await db.projects.find_one({"id": project_id})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    workspace = Path(project.get('workspace_path', WORKSPACES_DIR / project_id))
+    
+    # Default to index.html if no path
+    if not file_path or file_path == "":
+        file_path = "index.html"
+    
+    target_path = workspace / file_path
+    
+    if not target_path.exists():
+        # Try common entry points
+        for entry in ["index.html", "public/index.html", "dist/index.html", "build/index.html"]:
+            alt_path = workspace / entry
+            if alt_path.exists():
+                target_path = alt_path
+                break
+    
+    if not target_path.exists() or not target_path.is_file():
+        raise HTTPException(status_code=404, detail=f"File not found: {file_path}")
+    
+    # Determine content type
+    ext = target_path.suffix.lower()
+    content_types = {
+        ".html": "text/html",
+        ".css": "text/css",
+        ".js": "application/javascript",
+        ".json": "application/json",
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".gif": "image/gif",
+        ".svg": "image/svg+xml",
+        ".ico": "image/x-icon",
+        ".woff": "font/woff",
+        ".woff2": "font/woff2",
+        ".ttf": "font/ttf",
+    }
+    
+    content_type = content_types.get(ext, "text/plain")
+    
+    return FileResponse(target_path, media_type=content_type)
+
+@api_router.get("/projects/{project_id}/preview-info")
+async def get_preview_info(project_id: str):
+    """Get preview information for a project"""
+    project = await db.projects.find_one({"id": project_id})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    workspace = Path(project.get('workspace_path', WORKSPACES_DIR / project_id))
+    
+    # Find entry point
+    entry_points = ["index.html", "public/index.html", "dist/index.html", "build/index.html"]
+    entry_point = None
+    
+    for ep in entry_points:
+        if (workspace / ep).exists():
+            entry_point = ep
+            break
+    
+    # Check project status
+    status = project.get("status", "active")
+    ready_for_push = status == "ready_for_push"
+    pending_commit = project.get("pending_commit_message", "")
+    tested_features = project.get("tested_features", [])
+    
+    return {
+        "has_preview": entry_point is not None,
+        "entry_point": entry_point,
+        "preview_url": f"/api/projects/{project_id}/preview/{entry_point}" if entry_point else None,
+        "ready_for_push": ready_for_push,
+        "pending_commit_message": pending_commit,
+        "tested_features": tested_features
+    }
+
+@api_router.post("/projects/{project_id}/push")
+async def push_to_github(project_id: str):
+    """Push project to GitHub after testing"""
+    project = await db.projects.find_one({"id": project_id})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    if not project.get("github_url"):
+        raise HTTPException(status_code=400, detail="Kein GitHub Repository verknüpft")
+    
+    workspace_path = project.get('workspace_path')
+    if not workspace_path:
+        raise HTTPException(status_code=400, detail="Kein Workspace gefunden")
+    
+    commit_message = project.get("pending_commit_message", "Update from ForgePilot")
+    
+    try:
+        await update_agent(project_id, "git", "running", "Push zu GitHub...")
+        
+        repo = git.Repo(workspace_path)
+        repo.git.add(A=True)
+        repo.index.commit(commit_message)
+        
+        origin = repo.remote(name='origin')
+        origin.push()
+        
+        # Update project status
+        await db.projects.update_one(
+            {"id": project_id},
+            {"$set": {
+                "status": "active",
+                "pending_commit_message": None,
+                "tested_features": None,
+                "last_push": datetime.now(timezone.utc).isoformat()
+            }}
+        )
+        
+        await update_agent(project_id, "git", "completed", "Push erfolgreich")
+        await add_log(project_id, "success", f"GitHub Push erfolgreich: {commit_message}", "git")
+        
+        return {"success": True, "message": f"Erfolgreich gepusht: {commit_message}"}
+        
+    except Exception as e:
+        await update_agent(project_id, "git", "error", str(e))
+        await add_log(project_id, "error", f"GitHub Push fehlgeschlagen: {str(e)}", "git")
+        raise HTTPException(status_code=400, detail=str(e))
 
 # Include the router
 app.include_router(api_router)

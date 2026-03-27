@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import "@/App.css";
 import { BrowserRouter, Routes, Route, useNavigate, useParams } from "react-router-dom";
 import axios from "axios";
@@ -7,7 +7,8 @@ import {
   Home, Settings, ChevronRight, FileCode, Terminal, 
   CheckCircle2, Zap, Bug, Eye, X, Code, ListTodo,
   Folder, File, ChevronDown, Save, LayoutPanelLeft, GitCommit,
-  Check, Circle, ArrowRight, Lock, Globe
+  Check, Circle, ArrowRight, Lock, Globe, Upload, Search,
+  ExternalLink
 } from "lucide-react";
 import Prism from 'prismjs';
 import 'prismjs/themes/prism-tomorrow.css';
@@ -36,6 +37,54 @@ const api = {
   commitGitHub: (data) => axios.post(`${API}/github/commit`, data),
   getGitHubRepos: () => axios.get(`${API}/github/repos`),
   getGitHubBranches: (repo) => axios.get(`${API}/github/branches`, { params: { repo } }),
+  getPreviewInfo: (projectId) => axios.get(`${API}/projects/${projectId}/preview-info`),
+  pushToGitHub: (projectId) => axios.post(`${API}/projects/${projectId}/push`),
+};
+
+// ============== Tooltip Component ==============
+
+const Tooltip = ({ children, text, position = "bottom" }) => {
+  const [show, setShow] = useState(false);
+  const timeoutRef = useRef(null);
+  
+  const handleMouseEnter = () => {
+    timeoutRef.current = setTimeout(() => setShow(true), 2000); // 2 seconds delay
+  };
+  
+  const handleMouseLeave = () => {
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    setShow(false);
+  };
+  
+  const handleClick = () => {
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    setShow(false);
+  };
+
+  const positionClasses = {
+    top: "bottom-full left-1/2 -translate-x-1/2 mb-2",
+    bottom: "top-full left-1/2 -translate-x-1/2 mt-2",
+    left: "right-full top-1/2 -translate-y-1/2 mr-2",
+    right: "left-full top-1/2 -translate-y-1/2 ml-2",
+  };
+
+  return (
+    <div 
+      className="relative inline-flex"
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+      onClick={handleClick}
+    >
+      {children}
+      {show && (
+        <div className={`absolute z-[100] ${positionClasses[position]} animate-fade-in`}>
+          <div className="bg-zinc-800 border border-zinc-700 text-zinc-200 text-xs px-3 py-2 rounded-lg shadow-xl max-w-xs whitespace-normal">
+            {text}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 };
 
 // ============== Simple Components ==============
@@ -57,6 +106,16 @@ const AgentStatusPill = ({ agent }) => {
     error: "bg-rose-500",
   };
   
+  const agentDescriptions = {
+    orchestrator: "Koordiniert alle Agenten und den Entwicklungsprozess",
+    planner: "Plant die Architektur und erstellt die Roadmap",
+    coder: "Schreibt und generiert den Code",
+    reviewer: "Überprüft den Code auf Qualität und Best Practices",
+    tester: "Führt Tests durch und validiert die Funktionalität",
+    debugger: "Analysiert Fehler und schlägt Lösungen vor",
+    git: "Verwaltet Versionskontrolle und GitHub-Operationen",
+  };
+  
   const icons = {
     orchestrator: Zap,
     planner: ListTodo,
@@ -69,16 +128,18 @@ const AgentStatusPill = ({ agent }) => {
   const Icon = icons[agent.agent_type] || Zap;
 
   return (
-    <div 
-      className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-zinc-900 border transition-all duration-300 ${
-        agent.status === "running" ? "border-blue-500/50 shadow-lg shadow-blue-500/20" : "border-zinc-800"
-      }`}
-      data-testid={`agent-status-${agent.agent_type}`}
-    >
-      <div className={`w-2 h-2 rounded-full ${statusColors[agent.status]}`} />
-      <Icon size={14} />
-      <span className="text-sm capitalize text-zinc-300">{agent.agent_type}</span>
-    </div>
+    <Tooltip text={agentDescriptions[agent.agent_type] || "Agent"} position="bottom">
+      <div 
+        className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-zinc-900 border transition-all duration-300 cursor-help ${
+          agent.status === "running" ? "border-blue-500/50 shadow-lg shadow-blue-500/20" : "border-zinc-800"
+        }`}
+        data-testid={`agent-status-${agent.agent_type}`}
+      >
+        <div className={`w-2 h-2 rounded-full ${statusColors[agent.status]}`} />
+        <Icon size={14} />
+        <span className="text-sm capitalize text-zinc-300">{agent.agent_type}</span>
+      </div>
+    </Tooltip>
   );
 };
 
@@ -142,7 +203,6 @@ const FileTreeView = ({ items, onSelect, selectedPath }) => {
   );
 };
 
-// Syntax Highlighted Code Editor
 const SyntaxEditor = ({ content, onChange, language = "javascript", readOnly = false }) => {
   const textareaRef = useRef(null);
   const highlightRef = useRef(null);
@@ -335,9 +395,9 @@ const StartScreen = () => {
   };
 
   const projectTypes = [
-    { id: "fullstack", label: "Full Stack App", icon: Terminal },
-    { id: "mobile", label: "Mobile App", icon: FileCode },
-    { id: "landing", label: "Landing Page", icon: Eye },
+    { id: "fullstack", label: "Full Stack App", icon: Terminal, desc: "Komplette Web-App mit Frontend und Backend" },
+    { id: "mobile", label: "Mobile App", icon: FileCode, desc: "Mobile-optimierte Web-Anwendung" },
+    { id: "landing", label: "Landing Page", icon: Eye, desc: "Einzelseite für Marketing oder Produkte" },
   ];
 
   return (
@@ -345,13 +405,17 @@ const StartScreen = () => {
       <nav className="h-14 border-b border-zinc-800 bg-zinc-950/80 backdrop-blur-xl flex items-center justify-between px-6 sticky top-0 z-50">
         <Logo />
         <div className="flex items-center gap-4">
-          <button onClick={() => setShowGitHubModal(true)} className="flex items-center gap-2 px-3 py-1.5 text-sm text-zinc-400 hover:text-white hover:bg-zinc-800/50 rounded-md transition-colors" data-testid="github-import-btn">
-            <FolderGit2 size={16} />
-            <span>GitHub Import</span>
-          </button>
-          <button className="p-2 text-zinc-400 hover:text-white hover:bg-zinc-800/50 rounded-md transition-colors">
-            <Settings size={18} />
-          </button>
+          <Tooltip text="Importiere ein bestehendes Projekt von GitHub. Du kannst deine Repositories und Branches auswählen." position="bottom">
+            <button onClick={() => setShowGitHubModal(true)} className="flex items-center gap-2 px-3 py-1.5 text-sm text-zinc-400 hover:text-white hover:bg-zinc-800/50 rounded-md transition-colors" data-testid="github-import-btn">
+              <FolderGit2 size={16} />
+              <span>GitHub Import</span>
+            </button>
+          </Tooltip>
+          <Tooltip text="Einstellungen und Konfiguration von ForgePilot" position="bottom">
+            <button className="p-2 text-zinc-400 hover:text-white hover:bg-zinc-800/50 rounded-md transition-colors">
+              <Settings size={18} />
+            </button>
+          </Tooltip>
         </div>
       </nav>
 
@@ -359,25 +423,31 @@ const StartScreen = () => {
         <div className="max-w-3xl w-full flex flex-col items-center space-y-12">
           <div className="text-center space-y-4">
             <h1 className="text-4xl sm:text-5xl font-medium tracking-tighter text-zinc-50">Was möchtest du bauen?</h1>
-            <p className="text-lg text-zinc-500">Beschreibe dein Projekt. ForgePilot plant, entwickelt und testet es für dich.</p>
+            <p className="text-lg text-zinc-500">Beschreibe dein Projekt. ForgePilot recherchiert Best Practices, plant und entwickelt es für dich.</p>
           </div>
 
           <div className="flex items-center gap-2 p-1 bg-zinc-900 rounded-lg border border-zinc-800">
-            {projectTypes.map(({ id, label, icon: Icon }) => (
-              <button key={id} onClick={() => setProjectType(id)} className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${projectType === id ? "bg-zinc-800 text-white" : "text-zinc-400 hover:text-zinc-200"}`} data-testid={`project-type-${id}`}>
-                <Icon size={16} />{label}
-              </button>
+            {projectTypes.map(({ id, label, icon: Icon, desc }) => (
+              <Tooltip key={id} text={desc} position="bottom">
+                <button onClick={() => setProjectType(id)} className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${projectType === id ? "bg-zinc-800 text-white" : "text-zinc-400 hover:text-zinc-200"}`} data-testid={`project-type-${id}`}>
+                  <Icon size={16} />{label}
+                </button>
+              </Tooltip>
             ))}
           </div>
 
           <div className="w-full bg-zinc-900 border border-zinc-800 rounded-lg shadow-2xl overflow-hidden focus-within:border-zinc-600 transition-colors" data-testid="prompt-container">
-            <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} onKeyDown={handleKeyDown} placeholder="Beschreibe dein Projekt in natürlicher Sprache..." className="w-full min-h-[200px] bg-transparent p-6 text-lg placeholder:text-zinc-600 focus:outline-none" data-testid="main-prompt-input" />
+            <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} onKeyDown={handleKeyDown} placeholder="Beschreibe dein Projekt in natürlicher Sprache...
+
+Beispiel: Erstelle eine moderne Todo-App mit dunklem Design. Die App soll Todos hinzufügen, bearbeiten und löschen können. Nutze moderne CSS-Techniken wie Grid und Animationen." className="w-full min-h-[200px] bg-transparent p-6 text-lg placeholder:text-zinc-600 focus:outline-none" data-testid="main-prompt-input" />
             <div className="flex items-center justify-between p-4 border-t border-zinc-800 bg-zinc-900/50">
               <span className="text-xs text-zinc-500">⌘ + Enter zum Starten</span>
-              <button onClick={handleSubmit} disabled={!prompt.trim() || isLoading} className="flex items-center gap-2 bg-white text-black hover:bg-zinc-200 font-medium px-5 py-2.5 rounded-md transition-all disabled:opacity-50 disabled:cursor-not-allowed" data-testid="submit-prompt-btn">
-                {isLoading ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
-                <span>Projekt starten</span>
-              </button>
+              <Tooltip text="Startet die KI-gestützte Entwicklung. ForgePilot wird zuerst im Web nach Best Practices recherchieren." position="top">
+                <button onClick={handleSubmit} disabled={!prompt.trim() || isLoading} className="flex items-center gap-2 bg-white text-black hover:bg-zinc-200 font-medium px-5 py-2.5 rounded-md transition-all disabled:opacity-50 disabled:cursor-not-allowed" data-testid="submit-prompt-btn">
+                  {isLoading ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
+                  <span>Projekt starten</span>
+                </button>
+              </Tooltip>
             </div>
           </div>
 
@@ -386,14 +456,16 @@ const StartScreen = () => {
               <h3 className="text-sm font-semibold uppercase tracking-widest text-zinc-500">Aktuelle Projekte</h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 {recentProjects.map((project) => (
-                  <button key={project.id} onClick={() => navigate(`/workspace/${project.id}`)} className="flex items-center gap-3 p-4 bg-zinc-900 border border-zinc-800 rounded-lg text-left hover:border-zinc-700 hover:bg-zinc-800/50 transition-all group" data-testid={`recent-project-${project.id}`}>
-                    <div className="w-10 h-10 bg-zinc-800 rounded-md flex items-center justify-center text-zinc-400 group-hover:text-white transition-colors"><FileCode size={20} /></div>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium text-zinc-200 truncate">{project.name}</p>
-                      <p className="text-xs text-zinc-500">{project.project_type}</p>
-                    </div>
-                    <ChevronRight size={16} className="text-zinc-600" />
-                  </button>
+                  <Tooltip key={project.id} text={`Öffne "${project.name}" im Workspace`} position="top">
+                    <button onClick={() => navigate(`/workspace/${project.id}`)} className="flex items-center gap-3 p-4 bg-zinc-900 border border-zinc-800 rounded-lg text-left hover:border-zinc-700 hover:bg-zinc-800/50 transition-all group w-full" data-testid={`recent-project-${project.id}`}>
+                      <div className="w-10 h-10 bg-zinc-800 rounded-md flex items-center justify-center text-zinc-400 group-hover:text-white transition-colors"><FileCode size={20} /></div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-zinc-200 truncate">{project.name}</p>
+                        <p className="text-xs text-zinc-500">{project.project_type}</p>
+                      </div>
+                      <ChevronRight size={16} className="text-zinc-600" />
+                    </button>
+                  </Tooltip>
                 ))}
               </div>
             </div>
@@ -406,7 +478,7 @@ const StartScreen = () => {
   );
 };
 
-// ============== GitHub Import Modal with Dropdowns ==============
+// ============== GitHub Import Modal ==============
 
 const GitHubImportModal = ({ onClose, onImport }) => {
   const [repos, setRepos] = useState([]);
@@ -420,9 +492,7 @@ const GitHubImportModal = ({ onClose, onImport }) => {
   const [manualUrl, setManualUrl] = useState("");
   const [useManualUrl, setUseManualUrl] = useState(false);
 
-  useEffect(() => {
-    loadRepos();
-  }, []);
+  useEffect(() => { loadRepos(); }, []);
 
   const loadRepos = async () => {
     setIsLoadingRepos(true);
@@ -461,9 +531,7 @@ const GitHubImportModal = ({ onClose, onImport }) => {
   const handleImport = async () => {
     const url = useManualUrl ? manualUrl : selectedRepo?.url;
     const branch = useManualUrl ? "main" : selectedBranch;
-    
     if (!url) return;
-    
     setIsImporting(true);
     setError("");
     try {
@@ -487,14 +555,13 @@ const GitHubImportModal = ({ onClose, onImport }) => {
         </div>
         
         <div className="p-4 space-y-4">
-          {/* Toggle between dropdown and manual URL */}
           <div className="flex gap-2">
-            <button onClick={() => setUseManualUrl(false)} className={`flex-1 py-2 rounded-md text-sm font-medium transition-colors ${!useManualUrl ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-zinc-200'}`}>
-              Meine Repos
-            </button>
-            <button onClick={() => setUseManualUrl(true)} className={`flex-1 py-2 rounded-md text-sm font-medium transition-colors ${useManualUrl ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-zinc-200'}`}>
-              URL eingeben
-            </button>
+            <Tooltip text="Zeigt alle deine GitHub Repositories zur Auswahl" position="bottom">
+              <button onClick={() => setUseManualUrl(false)} className={`flex-1 py-2 rounded-md text-sm font-medium transition-colors ${!useManualUrl ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-zinc-200'}`}>Meine Repos</button>
+            </Tooltip>
+            <Tooltip text="Gib eine beliebige GitHub URL manuell ein" position="bottom">
+              <button onClick={() => setUseManualUrl(true)} className={`flex-1 py-2 rounded-md text-sm font-medium transition-colors ${useManualUrl ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-zinc-200'}`}>URL eingeben</button>
+            </Tooltip>
           </div>
 
           {useManualUrl ? (
@@ -504,35 +571,21 @@ const GitHubImportModal = ({ onClose, onImport }) => {
             </div>
           ) : (
             <React.Fragment>
-              {/* Repository Dropdown */}
               <div>
                 <label className="block text-sm font-medium text-zinc-400 mb-2">Repository auswählen</label>
                 {isLoadingRepos ? (
-                  <div className="flex items-center gap-2 text-zinc-500 py-2">
-                    <Loader2 size={16} className="animate-spin" />
-                    <span>Lade Repositories...</span>
-                  </div>
+                  <div className="flex items-center gap-2 text-zinc-500 py-2"><Loader2 size={16} className="animate-spin" /><span>Lade Repositories...</span></div>
                 ) : (
                   <div className="relative">
-                    <select
-                      value={selectedRepo?.full_name || ""}
-                      onChange={(e) => handleRepoSelect(e.target.value)}
-                      className="w-full bg-zinc-800 border border-zinc-700 text-white px-3 py-2.5 rounded-md focus:outline-none focus:border-zinc-500 appearance-none cursor-pointer"
-                      data-testid="github-repo-select"
-                    >
+                    <select value={selectedRepo?.full_name || ""} onChange={(e) => handleRepoSelect(e.target.value)} className="w-full bg-zinc-800 border border-zinc-700 text-white px-3 py-2.5 rounded-md focus:outline-none focus:border-zinc-500 appearance-none cursor-pointer" data-testid="github-repo-select">
                       <option value="">-- Repository wählen --</option>
-                      {repos.map((repo) => (
-                        <option key={repo.full_name} value={repo.full_name}>
-                          {repo.private ? "🔒 " : "🌐 "}{repo.full_name}
-                        </option>
-                      ))}
+                      {repos.map((repo) => (<option key={repo.full_name} value={repo.full_name}>{repo.private ? "🔒 " : "🌐 "}{repo.full_name}</option>))}
                     </select>
                     <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 pointer-events-none" />
                   </div>
                 )}
               </div>
 
-              {/* Selected Repo Info */}
               {selectedRepo && (
                 <div className="p-3 bg-zinc-800/50 rounded-md border border-zinc-700">
                   <div className="flex items-center gap-2 text-sm">
@@ -544,27 +597,16 @@ const GitHubImportModal = ({ onClose, onImport }) => {
                 </div>
               )}
 
-              {/* Branch Dropdown */}
               {selectedRepo && (
                 <div>
                   <label className="block text-sm font-medium text-zinc-400 mb-2">Branch auswählen</label>
                   {isLoadingBranches ? (
-                    <div className="flex items-center gap-2 text-zinc-500 py-2">
-                      <Loader2 size={16} className="animate-spin" />
-                      <span>Lade Branches...</span>
-                    </div>
+                    <div className="flex items-center gap-2 text-zinc-500 py-2"><Loader2 size={16} className="animate-spin" /><span>Lade Branches...</span></div>
                   ) : (
                     <div className="relative">
-                      <select
-                        value={selectedBranch}
-                        onChange={(e) => setSelectedBranch(e.target.value)}
-                        className="w-full bg-zinc-800 border border-zinc-700 text-white px-3 py-2.5 rounded-md focus:outline-none focus:border-zinc-500 appearance-none cursor-pointer"
-                        data-testid="github-branch-select"
-                      >
+                      <select value={selectedBranch} onChange={(e) => setSelectedBranch(e.target.value)} className="w-full bg-zinc-800 border border-zinc-700 text-white px-3 py-2.5 rounded-md focus:outline-none focus:border-zinc-500 appearance-none cursor-pointer" data-testid="github-branch-select">
                         <option value="">-- Branch wählen --</option>
-                        {branches.map((branch) => (
-                          <option key={branch} value={branch}>{branch}</option>
-                        ))}
+                        {branches.map((branch) => (<option key={branch} value={branch}>{branch}</option>))}
                       </select>
                       <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 pointer-events-none" />
                     </div>
@@ -579,15 +621,12 @@ const GitHubImportModal = ({ onClose, onImport }) => {
         
         <div className="flex items-center justify-end gap-3 p-4 border-t border-zinc-800">
           <button onClick={onClose} className="px-4 py-2 text-zinc-400 hover:text-white">Abbrechen</button>
-          <button
-            onClick={handleImport}
-            disabled={(useManualUrl ? !manualUrl.trim() : (!selectedRepo || !selectedBranch)) || isImporting}
-            className="flex items-center gap-2 bg-white text-black hover:bg-zinc-200 font-medium px-4 py-2 rounded-md disabled:opacity-50"
-            data-testid="github-import-confirm-btn"
-          >
-            {isImporting ? <Loader2 size={16} className="animate-spin" /> : <GitBranch size={16} />}
-            Importieren
-          </button>
+          <Tooltip text="Klont das Repository in einen neuen Workspace" position="top">
+            <button onClick={handleImport} disabled={(useManualUrl ? !manualUrl.trim() : (!selectedRepo || !selectedBranch)) || isImporting} className="flex items-center gap-2 bg-white text-black hover:bg-zinc-200 font-medium px-4 py-2 rounded-md disabled:opacity-50" data-testid="github-import-confirm-btn">
+              {isImporting ? <Loader2 size={16} className="animate-spin" /> : <GitBranch size={16} />}
+              Importieren
+            </button>
+          </Tooltip>
         </div>
       </div>
     </div>
@@ -612,9 +651,11 @@ const Workspace = () => {
   const [fileContent, setFileContent] = useState("");
   const [isFileDirty, setIsFileDirty] = useState(false);
   const [showFileExplorer, setShowFileExplorer] = useState(true);
-  const [autoScroll, setAutoScroll] = useState(false);
+  const [previewInfo, setPreviewInfo] = useState(null);
+  const [isPushing, setIsPushing] = useState(false);
   const chatContainerRef = useRef(null);
   const pollingRef = useRef(null);
+  const iframeRef = useRef(null);
 
   useEffect(() => {
     loadProjectData();
@@ -622,17 +663,16 @@ const Workspace = () => {
     return () => { if (pollingRef.current) clearInterval(pollingRef.current); };
   }, [projectId]);
 
-  // NO auto-scroll - user controls scroll position
-
   const loadProjectData = async () => {
     try {
-      const [projectRes, messagesRes, agentsRes, logsRes, roadmapRes, filesRes] = await Promise.all([
+      const [projectRes, messagesRes, agentsRes, logsRes, roadmapRes, filesRes, previewRes] = await Promise.all([
         api.getProject(projectId),
         api.getMessages(projectId),
         api.getAgents(projectId),
         api.getLogs(projectId),
         api.getRoadmap(projectId),
         api.getFiles(projectId),
+        api.getPreviewInfo(projectId).catch(() => ({ data: null })),
       ]);
       setProject(projectRes.data);
       setMessages(messagesRes.data);
@@ -640,6 +680,7 @@ const Workspace = () => {
       setLogs(logsRes.data);
       setRoadmap(roadmapRes.data);
       setFileTree(filesRes.data.tree || []);
+      setPreviewInfo(previewRes.data);
       
       if (messagesRes.data.length === 0 && projectRes.data.description) {
         sendMessage(projectRes.data.description);
@@ -651,16 +692,18 @@ const Workspace = () => {
 
   const refreshData = async () => {
     try {
-      const [agentsRes, logsRes, filesRes, roadmapRes] = await Promise.all([
+      const [agentsRes, logsRes, filesRes, roadmapRes, previewRes] = await Promise.all([
         api.getAgents(projectId),
         api.getLogs(projectId),
         api.getFiles(projectId),
         api.getRoadmap(projectId),
+        api.getPreviewInfo(projectId).catch(() => ({ data: null })),
       ]);
       setAgents(agentsRes.data);
       setLogs(logsRes.data);
       setFileTree(filesRes.data.tree || []);
       setRoadmap(roadmapRes.data);
+      setPreviewInfo(previewRes.data);
     } catch (e) {}
   };
 
@@ -682,12 +725,34 @@ const Workspace = () => {
       await api.saveFile(projectId, selectedFile, fileContent);
       setIsFileDirty(false);
       refreshData();
+      refreshPreview();
     } catch (e) {}
   };
 
-  const getFileLanguage = (path) => {
-    const ext = path?.split('.').pop()?.toLowerCase() || '';
-    return ext;
+  const refreshPreview = () => {
+    if (iframeRef.current) {
+      iframeRef.current.src = iframeRef.current.src;
+    }
+  };
+
+  const getFileLanguage = (path) => path?.split('.').pop()?.toLowerCase() || '';
+
+  const handlePush = async () => {
+    if (!previewInfo?.ready_for_push) {
+      alert("Das Projekt muss zuerst vom Agent als bereit markiert werden.");
+      return;
+    }
+    
+    setIsPushing(true);
+    try {
+      await api.pushToGitHub(projectId);
+      alert("Erfolgreich zu GitHub gepusht!");
+      refreshData();
+    } catch (e) {
+      alert("Push fehlgeschlagen: " + (e.response?.data?.detail || e.message));
+    } finally {
+      setIsPushing(false);
+    }
   };
 
   const sendMessage = async (content) => {
@@ -737,6 +802,7 @@ const Workspace = () => {
                   setMessages(prev => prev.map(msg => msg.id === aiMessageId ? { ...msg, files_created: filesCreated } : msg));
                 }
                 refreshData();
+                refreshPreview();
               }
             } catch (e) {}
           }
@@ -757,9 +823,7 @@ const Workspace = () => {
   };
 
   const scrollToBottom = () => {
-    if (chatContainerRef.current) {
-      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
-    }
+    if (chatContainerRef.current) chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
   };
 
   if (!project) {
@@ -771,7 +835,9 @@ const Workspace = () => {
       {/* Navigation */}
       <nav className="h-14 border-b border-zinc-800 bg-zinc-950/80 backdrop-blur-xl flex items-center justify-between px-4 sticky top-0 z-50">
         <div className="flex items-center gap-4">
-          <button onClick={() => navigate("/")} className="p-2 text-zinc-400 hover:text-white hover:bg-zinc-800/50 rounded-md" data-testid="home-btn"><Home size={18} /></button>
+          <Tooltip text="Zurück zur Startseite" position="bottom">
+            <button onClick={() => navigate("/")} className="p-2 text-zinc-400 hover:text-white hover:bg-zinc-800/50 rounded-md" data-testid="home-btn"><Home size={18} /></button>
+          </Tooltip>
           <div className="h-6 w-px bg-zinc-800" />
           <Logo />
           <div className="h-6 w-px bg-zinc-800" />
@@ -779,10 +845,36 @@ const Workspace = () => {
         </div>
         <div className="flex items-center gap-2">
           {project.github_url && (
-            <button className="flex items-center gap-2 px-3 py-1.5 text-zinc-400 hover:text-white hover:bg-zinc-800/50 text-sm rounded-md" data-testid="commit-btn"><GitCommit size={14} />Commit</button>
+            <Tooltip text={previewInfo?.ready_for_push ? `Bereit für Push: "${previewInfo.pending_commit_message}"` : "Änderungen zu GitHub pushen (Agent muss zuerst als bereit markieren)"} position="bottom">
+              <button 
+                onClick={handlePush}
+                disabled={!previewInfo?.ready_for_push || isPushing}
+                className={`flex items-center gap-2 px-3 py-1.5 text-sm rounded-md transition-colors ${
+                  previewInfo?.ready_for_push 
+                    ? "bg-emerald-600 hover:bg-emerald-500 text-white" 
+                    : "text-zinc-400 hover:text-white hover:bg-zinc-800/50"
+                }`}
+                data-testid="push-btn"
+              >
+                {isPushing ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+                {previewInfo?.ready_for_push ? "Jetzt pushen" : "Push"}
+              </button>
+            </Tooltip>
           )}
-          <button onClick={() => setShowFileExplorer(!showFileExplorer)} className={`p-2 rounded-md ${showFileExplorer ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white hover:bg-zinc-800/50'}`} data-testid="toggle-file-explorer-btn"><LayoutPanelLeft size={18} /></button>
-          <button className="flex items-center gap-2 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-medium rounded-md" data-testid="deploy-btn"><Play size={14} />Deploy</button>
+          <Tooltip text="Zeigt/versteckt den Datei-Explorer links" position="bottom">
+            <button onClick={() => setShowFileExplorer(!showFileExplorer)} className={`p-2 rounded-md ${showFileExplorer ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white hover:bg-zinc-800/50'}`} data-testid="toggle-file-explorer-btn"><LayoutPanelLeft size={18} /></button>
+          </Tooltip>
+          <Tooltip text="Öffnet die Live-Preview in einem neuen Tab" position="bottom">
+            <button 
+              onClick={() => previewInfo?.preview_url && window.open(`${BACKEND_URL}${previewInfo.preview_url}`, '_blank')}
+              disabled={!previewInfo?.has_preview}
+              className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-800 disabled:text-zinc-500 text-white text-sm font-medium rounded-md transition-colors" 
+              data-testid="external-preview-btn"
+            >
+              <ExternalLink size={14} />
+              Preview öffnen
+            </button>
+          </Tooltip>
         </div>
       </nav>
 
@@ -793,7 +885,9 @@ const Workspace = () => {
           <div className="w-56 border-r border-zinc-800 bg-zinc-950 flex flex-col shrink-0" data-testid="file-explorer">
             <div className="h-10 border-b border-zinc-800 flex items-center justify-between px-3">
               <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">Dateien</span>
-              <button onClick={refreshData} className="p-1 text-zinc-500 hover:text-white"><RefreshCw size={12} /></button>
+              <Tooltip text="Aktualisiert die Dateiliste" position="bottom">
+                <button onClick={refreshData} className="p-1 text-zinc-500 hover:text-white"><RefreshCw size={12} /></button>
+              </Tooltip>
             </div>
             <div className="flex-1 overflow-y-auto p-2">
               {fileTree.length > 0 ? (
@@ -817,7 +911,6 @@ const Workspace = () => {
             </div>
           </div>
 
-          {/* Chat Messages - NO AUTO-SCROLL */}
           <div ref={chatContainerRef} className="flex-1 overflow-y-auto p-4 space-y-4" data-testid="chat-message-list">
             {messages.map((message) => <ChatMessage key={message.id} message={message} />)}
             {isLoading && messages[messages.length - 1]?.role === "user" && (
@@ -828,20 +921,18 @@ const Workspace = () => {
             )}
           </div>
 
-          {/* Scroll to bottom button */}
           <div className="px-3 py-1 border-t border-zinc-800/50">
-            <button onClick={scrollToBottom} className="w-full text-xs text-zinc-500 hover:text-zinc-300 py-1 transition-colors">
-              ↓ Zum Ende scrollen
-            </button>
+            <button onClick={scrollToBottom} className="w-full text-xs text-zinc-500 hover:text-zinc-300 py-1 transition-colors">↓ Zum Ende scrollen</button>
           </div>
 
-          {/* Chat Input */}
           <div className="p-3 border-t border-zinc-800 bg-zinc-900/50">
             <div className="flex items-end gap-2">
               <textarea value={inputValue} onChange={(e) => setInputValue(e.target.value)} onKeyDown={handleKeyDown} placeholder="Nachricht an Agent..." rows={2} className="flex-1 bg-zinc-800 border border-zinc-700 text-white px-3 py-2 rounded-md focus:outline-none focus:border-zinc-500 placeholder:text-zinc-600 resize-none text-sm" data-testid="chat-input" />
-              <button onClick={() => sendMessage(inputValue)} disabled={!inputValue.trim() || isLoading} className="p-2 bg-white text-black rounded-md hover:bg-zinc-200 disabled:opacity-50" data-testid="send-message-btn">
-                {isLoading ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
-              </button>
+              <Tooltip text="Sendet die Nachricht an den KI-Agenten" position="top">
+                <button onClick={() => sendMessage(inputValue)} disabled={!inputValue.trim() || isLoading} className="p-2 bg-white text-black rounded-md hover:bg-zinc-200 disabled:opacity-50" data-testid="send-message-btn">
+                  {isLoading ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
+                </button>
+              </Tooltip>
             </div>
           </div>
         </div>
@@ -851,23 +942,31 @@ const Workspace = () => {
           <div className="h-10 border-b border-zinc-800 flex items-center px-2 bg-zinc-950/50 shrink-0">
             <div className="flex items-center gap-1">
               {[
-                { id: "preview", label: "Preview", icon: Eye },
-                { id: "editor", label: selectedFile || "Editor", icon: Code },
-                { id: "logs", label: "Logs", icon: Terminal },
-                { id: "roadmap", label: "Roadmap", icon: ListTodo },
-              ].map(({ id, label, icon: Icon }) => (
-                <button key={id} onClick={() => setActiveTab(id)} className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border-b-2 transition-all ${activeTab === id ? "border-white text-white" : "border-transparent text-zinc-400 hover:text-zinc-100"}`} data-testid={`tab-${id}`}>
-                  <Icon size={12} />
-                  <span className="max-w-[120px] truncate">{label}</span>
-                  {id === "editor" && isFileDirty && <span className="w-2 h-2 bg-amber-400 rounded-full" />}
-                </button>
+                { id: "preview", label: "Live Preview", icon: Eye, tip: "Zeigt eine Live-Vorschau des Projekts" },
+                { id: "editor", label: selectedFile || "Editor", icon: Code, tip: "Code-Editor mit Syntax-Highlighting" },
+                { id: "logs", label: "Logs", icon: Terminal, tip: "Zeigt System- und Agent-Logs" },
+                { id: "roadmap", label: "Roadmap", icon: ListTodo, tip: "Zeigt den Projektplan und Fortschritt" },
+              ].map(({ id, label, icon: Icon, tip }) => (
+                <Tooltip key={id} text={tip} position="bottom">
+                  <button onClick={() => setActiveTab(id)} className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border-b-2 transition-all ${activeTab === id ? "border-white text-white" : "border-transparent text-zinc-400 hover:text-zinc-100"}`} data-testid={`tab-${id}`}>
+                    <Icon size={12} />
+                    <span className="max-w-[120px] truncate">{label}</span>
+                    {id === "editor" && isFileDirty && <span className="w-2 h-2 bg-amber-400 rounded-full" />}
+                  </button>
+                </Tooltip>
               ))}
             </div>
             <div className="flex-1" />
             {activeTab === "editor" && selectedFile && (
-              <button onClick={saveFile} disabled={!isFileDirty} className="flex items-center gap-1 px-2 py-1 text-xs text-zinc-400 hover:text-white disabled:opacity-50" data-testid="save-file-btn"><Save size={12} />Speichern</button>
+              <Tooltip text="Speichert die Datei und aktualisiert die Preview" position="bottom">
+                <button onClick={saveFile} disabled={!isFileDirty} className="flex items-center gap-1 px-2 py-1 text-xs text-zinc-400 hover:text-white disabled:opacity-50" data-testid="save-file-btn"><Save size={12} />Speichern</button>
+              </Tooltip>
             )}
-            <button className="p-1.5 text-zinc-400 hover:text-white" onClick={refreshData}><RefreshCw size={14} /></button>
+            {activeTab === "preview" && (
+              <Tooltip text="Lädt die Preview neu" position="bottom">
+                <button onClick={refreshPreview} className="p-1.5 text-zinc-400 hover:text-white"><RefreshCw size={14} /></button>
+              </Tooltip>
+            )}
           </div>
 
           <div className="flex-1 overflow-hidden">
@@ -876,31 +975,33 @@ const Workspace = () => {
                 <div className="h-full bg-zinc-950 rounded-lg border border-zinc-800 overflow-hidden flex flex-col">
                   <div className="h-8 bg-zinc-900 border-b border-zinc-800 flex items-center px-3 gap-2 shrink-0">
                     <div className="flex gap-1">
-                      <div className="w-2.5 h-2.5 rounded-full bg-zinc-700" />
-                      <div className="w-2.5 h-2.5 rounded-full bg-zinc-700" />
-                      <div className="w-2.5 h-2.5 rounded-full bg-zinc-700" />
+                      <div className="w-2.5 h-2.5 rounded-full bg-rose-500" />
+                      <div className="w-2.5 h-2.5 rounded-full bg-amber-500" />
+                      <div className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
                     </div>
                     <div className="flex-1 mx-2">
-                      <div className="bg-zinc-800 rounded px-2 py-0.5 text-xs text-zinc-500">localhost:3000</div>
+                      <div className="bg-zinc-800 rounded px-2 py-0.5 text-xs text-zinc-500">
+                        {previewInfo?.has_preview ? previewInfo.entry_point : "Keine Preview verfügbar"}
+                      </div>
                     </div>
                   </div>
-                  <div className="flex-1 flex items-center justify-center text-zinc-600" data-testid="live-preview-iframe">
-                    {fileTree.length > 0 ? (
-                      <div className="text-center space-y-3">
-                        <div className="w-12 h-12 mx-auto bg-emerald-500/10 rounded-lg flex items-center justify-center">
-                          <CheckCircle2 size={24} className="text-emerald-500" />
-                        </div>
-                        <div>
-                          <p className="font-medium text-zinc-300">Projekt bereit</p>
-                          <p className="text-sm text-zinc-500">{fileTree.length} Elemente erstellt</p>
-                        </div>
-                      </div>
+                  <div className="flex-1 bg-white" data-testid="live-preview-iframe">
+                    {previewInfo?.has_preview ? (
+                      <iframe
+                        ref={iframeRef}
+                        src={`${BACKEND_URL}${previewInfo.preview_url}`}
+                        className="w-full h-full border-0"
+                        title="Live Preview"
+                      />
                     ) : (
-                      <div className="text-center space-y-3">
-                        <div className="w-12 h-12 mx-auto bg-zinc-800 rounded-lg flex items-center justify-center">
-                          <Eye size={24} className="text-zinc-600" />
+                      <div className="h-full flex items-center justify-center bg-zinc-950 text-zinc-600">
+                        <div className="text-center space-y-3">
+                          <div className="w-12 h-12 mx-auto bg-zinc-800 rounded-lg flex items-center justify-center">
+                            <Eye size={24} className="text-zinc-600" />
+                          </div>
+                          <p className="font-medium text-zinc-400">Keine Preview verfügbar</p>
+                          <p className="text-sm text-zinc-600">Erstelle eine index.html Datei</p>
                         </div>
-                        <p className="font-medium text-zinc-400">Preview nicht verfügbar</p>
                       </div>
                     )}
                   </div>
@@ -911,11 +1012,7 @@ const Workspace = () => {
             {activeTab === "editor" && (
               <div className="h-full" data-testid="editor-panel">
                 {selectedFile ? (
-                  <SyntaxEditor
-                    content={fileContent}
-                    onChange={(val) => { setFileContent(val); setIsFileDirty(true); }}
-                    language={getFileLanguage(selectedFile)}
-                  />
+                  <SyntaxEditor content={fileContent} onChange={(val) => { setFileContent(val); setIsFileDirty(true); }} language={getFileLanguage(selectedFile)} />
                 ) : (
                   <div className="h-full flex items-center justify-center text-zinc-600">
                     <div className="text-center space-y-3">
