@@ -1,0 +1,169 @@
+{
+  "project_name": "ForgePilot",
+  "domain": "Developer Tools / AI Coding Assistant",
+  "theme": "dark",
+  "archetype": "4 (Swiss & High-Contrast) / Terminal Retro-Futurism mix",
+  "emotional_tone": "Focused, elite, technical, precise, orchestrating",
+  "color_palette": {
+    "background": "zinc-950",
+    "surface_1": "zinc-900",
+    "surface_2": "zinc-800",
+    "border_subtle": "zinc-800",
+    "border_strong": "zinc-700",
+    "text_primary": "zinc-50",
+    "text_secondary": "zinc-400",
+    "text_tertiary": "zinc-500",
+    "primary": "white",
+    "primary_text": "black",
+    "accent_processing": "blue-500",
+    "accent_success": "emerald-500",
+    "accent_error": "rose-500",
+    "accent_warning": "amber-500",
+    "css_variables": {
+      "--background": "240 10% 3.9%",
+      "--foreground": "0 0% 98%",
+      "--card": "240 10% 3.9%",
+      "--card-foreground": "0 0% 98%",
+      "--popover": "240 10% 3.9%",
+      "--popover-foreground": "0 0% 98%",
+      "--primary": "0 0% 98%",
+      "--primary-foreground": "240 5.9% 10%",
+      "--secondary": "240 3.7% 15.9%",
+      "--secondary-foreground": "0 0% 98%",
+      "--muted": "240 3.7% 15.9%",
+      "--muted-foreground": "240 5% 64.9%",
+      "--accent": "240 3.7% 15.9%",
+      "--accent-foreground": "0 0% 98%",
+      "--destructive": "0 62.8% 30.6%",
+      "--destructive-foreground": "0 0% 98%",
+      "--border": "240 3.7% 15.9%",
+      "--input": "240 3.7% 15.9%",
+      "--ring": "240 4.9% 83.9%",
+      "--radius": "0.25rem"
+    }
+  },
+  "typography": {
+    "heading_font": "IBM Plex Sans",
+    "body_font": "IBM Plex Sans",
+    "code_font": "JetBrains Mono",
+    "font_imports": [
+      "https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap"
+    ],
+    "heading_classes": "font-['IBM_Plex_Sans',sans-serif] tracking-tight text-zinc-50",
+    "body_classes": "font-['IBM_Plex_Sans',sans-serif] leading-relaxed text-zinc-400",
+    "code_classes": "font-['JetBrains_Mono',monospace] text-sm tracking-tight",
+    "sizes": {
+      "h1": "text-4xl sm:text-5xl font-medium tracking-tighter",
+      "h2": "text-2xl sm:text-3xl font-medium tracking-tight",
+      "h3": "text-xl sm:text-2xl font-medium",
+      "h4": "text-lg sm:text-xl font-medium",
+      "body": "text-base",
+      "small": "text-sm",
+      "tiny_label": "text-xs font-semibold uppercase tracking-[0.2em]"
+    }
+  },
+  "layout_strategies": {
+    "global": {
+      "container": "w-full min-h-screen bg-zinc-950 text-zinc-50 flex flex-col",
+      "navigation": "h-14 border-b border-zinc-800 bg-zinc-950/80 backdrop-blur-xl flex items-center justify-between px-4 sm:px-6 z-50 sticky top-0"
+    },
+    "start_screen": {
+      "wrapper": "flex-1 flex flex-col items-center justify-center p-6 sm:p-12 md:p-24",
+      "hero_content": "max-w-3xl w-full flex flex-col items-center space-y-12",
+      "prompt_box_container": "w-full bg-zinc-900 border border-zinc-800 rounded-lg shadow-2xl overflow-hidden focus-within:border-zinc-600 transition-colors duration-300",
+      "prompt_box_input": "w-full min-h-[160px] bg-transparent p-6 text-xl placeholder:text-zinc-600 resize-none focus:outline-none focus:ring-0",
+      "prompt_box_footer": "flex items-center justify-between p-4 border-t border-zinc-800 bg-zinc-900/50"
+    },
+    "workspace_mode": {
+      "wrapper": "flex-1 grid grid-cols-1 md:grid-cols-12 h-[calc(100vh-3.5rem)] overflow-hidden",
+      "left_sidebar": "col-span-1 md:col-span-4 lg:col-span-3 border-r border-zinc-800 bg-zinc-950 flex flex-col h-full",
+      "chat_history": "flex-1 overflow-y-auto p-4 space-y-6",
+      "agent_timeline": "p-4 border-b border-zinc-800 bg-zinc-900/30 flex flex-col gap-2",
+      "right_panel": "col-span-1 md:col-span-8 lg:col-span-9 bg-zinc-900/50 flex flex-col h-full overflow-hidden relative",
+      "preview_header": "h-12 border-b border-zinc-800 flex items-center justify-between px-4 bg-zinc-950/50",
+      "preview_content": "flex-1 overflow-auto bg-zinc-900 relative rounded-sm m-2 border border-zinc-800/50",
+      "log_console": "h-64 border-t border-zinc-800 bg-zinc-950 p-4 font-['JetBrains_Mono'] text-xs overflow-y-auto"
+    }
+  },
+  "component_guidelines": {
+    "buttons": {
+      "primary": "bg-white text-black hover:bg-zinc-200 font-medium px-4 py-2 rounded-md transition-colors shadow-sm",
+      "secondary": "bg-zinc-800 text-white hover:bg-zinc-700 border border-zinc-700 px-4 py-2 rounded-md transition-colors",
+      "ghost": "text-zinc-400 hover:text-white hover:bg-zinc-800/50 px-4 py-2 rounded-md transition-colors"
+    },
+    "inputs": {
+      "default": "bg-zinc-900 border border-zinc-800 text-white px-3 py-2 rounded-md focus:outline-none focus:border-zinc-500 focus:ring-1 focus:ring-zinc-500 transition-all placeholder:text-zinc-600"
+    },
+    "cards": {
+      "default": "bg-zinc-900 border border-zinc-800 rounded-lg p-6",
+      "glass": "bg-zinc-900/60 backdrop-blur-xl border border-zinc-800/50 rounded-lg p-6 shadow-xl"
+    },
+    "agent_status_pill": {
+      "wrapper": "inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-zinc-900 border border-zinc-800 text-sm",
+      "indicator_active": "w-2 h-2 rounded-full bg-blue-500 animate-pulse",
+      "indicator_success": "w-2 h-2 rounded-full bg-emerald-500",
+      "indicator_error": "w-2 h-2 rounded-full bg-rose-500"
+    },
+    "chat_bubble": {
+      "user": "bg-zinc-800 border border-zinc-700 text-zinc-100 p-4 rounded-xl rounded-tr-sm max-w-[85%] self-end",
+      "ai": "bg-transparent text-zinc-300 p-0 max-w-[95%] self-start"
+    },
+    "tabs": {
+      "list": "flex items-center gap-1 border-b border-zinc-800 w-full px-2",
+      "trigger": "px-4 py-2 text-sm font-medium text-zinc-400 hover:text-zinc-100 border-b-2 border-transparent data-[state=active]:border-white data-[state=active]:text-white transition-all"
+    }
+  },
+  "interactions_and_motion": {
+    "hover_states": "All interactive elements MUST have visible hover states altering background-color or text-color.",
+    "focus_states": "Inputs and buttons MUST show focus rings (ring-1 ring-zinc-500 or ring-white).",
+    "page_transitions": "Framer Motion default: { initial: { opacity: 0, y: 10 }, animate: { opacity: 1, y: 0 }, transition: { duration: 0.3 } }",
+    "chat_stagger": "List items in chat should stagger entrance.",
+    "agent_timeline_animation": "Active step in timeline should pulse gently or have a subtle moving gradient border (Tracing Beam concept)."
+  },
+  "icons_strategy": {
+    "library": "lucide-react",
+    "style": "Use regular weight, stroke-width 1.5. Sizes typically 16px (w-4 h-4) to 20px (w-5 h-5).",
+    "commands": ["yarn add lucide-react"]
+  },
+  "shadcn_components": [
+    "Button",
+    "Input",
+    "Textarea",
+    "ScrollArea",
+    "Tabs",
+    "Dialog (for GitHub Import)",
+    "Tooltip",
+    "DropdownMenu"
+  ],
+  "testing_attributes": {
+    "rule": "MUST add data-testid attributes to all interactive elements.",
+    "examples": [
+      "data-testid='main-prompt-input'",
+      "data-testid='submit-prompt-btn'",
+      "data-testid='chat-message-list'",
+      "data-testid='agent-timeline-status'",
+      "data-testid='live-preview-iframe'",
+      "data-testid='log-console-view'",
+      "data-testid='github-import-dialog-trigger'"
+    ]
+  },
+  "media_assets": {
+    "logo_placeholder": "Use a stylized text logo: <div className=\"font-['JetBrains_Mono'] font-bold text-lg tracking-tight flex items-center gap-2\"><div className=\"w-5 h-5 bg-white rounded-sm flex items-center justify-center\"><span className=\"text-black text-xs\">F</span></div>ForgePilot</div>",
+    "images": {
+      "abstract_dark_bg": {
+        "url": "https://images.unsplash.com/photo-1691137493205-111951566e72?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMzl8MHwxfHNlYXJjaHw0fHxkYXJrJTIwYWJzdHJhY3QlMjBnZW9tZXRyaWMlMjBiYWNrZ3JvdW5kfGVufDB8fHx8MTc3NDU5MzQzNXww&ixlib=rb-4.1.0&q=85",
+        "description": "Subtle dark abstract texture, can be used as a very low opacity (5%) background image behind the start screen prompt to kill the solid flat black."
+      }
+    }
+  },
+  "implementation_instructions_for_main_agent": [
+    "1. Setup Tailwind config with the specified colors (zinc-950, zinc-900, etc) and fonts (IBM Plex Sans, JetBrains Mono).",
+    "2. Build the Start Screen: A centralized, large text area that mimics an AI command prompt. It should dominate the viewport, featuring a subtle glowing outline on focus. Wrap it in a container with the abstract dark bg at 5-10% opacity.",
+    "3. Build the Workspace Layout: A strict 2-column grid. Left side (chat + active agent timeline). Right side (Code/Preview + Logs).",
+    "4. Agent Timeline: Crucial feature. Show a vertical or horizontal list of agents (Orchestrator -> Planner -> Coder -> Reviewer -> Test -> Git). Highlight the active one with a glowing pulse indicator.",
+    "5. Live Preview Panel: Needs to look like an embedded browser or sandbox. Include a mock URL bar and a refresh button.",
+    "6. Log & Debugger View: A terminal-like bottom pane on the right side. Use JetBrains Mono font, text-xs. Color-code errors (rose-400), warnings (amber-400), info (zinc-400).",
+    "7. GitHub Import/Export: Triggered via a Dialog. Keep the modal minimal and high contrast.",
+    "8. DO NOT use generic borders. Stick to the 1px `border-zinc-800` to maintain the Swiss Brutalist/Developer Tool aesthetic. Ensure padding is generous (`p-6` or `p-8`) inside containers."
+  ]
+}
