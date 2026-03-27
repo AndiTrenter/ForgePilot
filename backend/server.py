@@ -525,6 +525,21 @@ async def get_messages(project_id: str):
     ).sort("created_at", 1).to_list(1000)
     return messages
 
+@api_router.post("/projects/{project_id}/messages", response_model=Message)
+async def create_message(project_id: str, message: MessageCreate):
+    """Create a new message directly"""
+    project = await db.projects.find_one({"id": project_id})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    msg_obj = Message(
+        project_id=project_id,
+        content=message.content,
+        role=message.role
+    )
+    await db.messages.insert_one(msg_obj.model_dump())
+    return msg_obj
+
 @api_router.post("/projects/{project_id}/chat")
 async def chat_with_ai(project_id: str, message: MessageCreate):
     """Send a message and get AI response with streaming and tool execution"""
