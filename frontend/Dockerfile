@@ -1,16 +1,20 @@
 # Build stage
-FROM node:18-alpine as build
+FROM node:18-alpine AS build
 
 WORKDIR /app
 
 # Copy package files
-COPY package.json yarn.lock ./
+COPY package.json ./
 
-# Install dependencies
-RUN yarn install --frozen-lockfile
+# Install dependencies (without frozen lockfile since yarn.lock might not exist)
+RUN yarn install
 
 # Copy source files
 COPY . .
+
+# Set build-time environment variable
+ARG REACT_APP_BACKEND_URL=http://localhost:8001
+ENV REACT_APP_BACKEND_URL=$REACT_APP_BACKEND_URL
 
 # Build the app
 RUN yarn build
