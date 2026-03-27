@@ -791,6 +791,18 @@ const StartScreen = () => {
   const [recentProjects, setRecentProjects] = useState([]);
   const [showGitHubModal, setShowGitHubModal] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [ollamaStatus, setOllamaStatus] = useState({ available: false });
+  const [useOllama, setUseOllama] = useState(false);
+  
+  const toggleOllama = async () => {
+    try {
+      await axios.put(`${API}/settings`, { use_ollama: !useOllama });
+      setUseOllama(!useOllama);
+    } catch (e) {
+      console.error('Failed to toggle Ollama');
+    }
+  };
 
   useEffect(() => {
     api.getProjects().then(res => setRecentProjects(res.data.slice(0, 6))).catch(() => {});
@@ -864,7 +876,7 @@ const StartScreen = () => {
             </button>
           </Tooltip>
           <Tooltip text="Einstellungen und Konfiguration" position="bottom">
-            <button className="p-2 text-zinc-400 hover:text-white hover:bg-zinc-800/50 rounded-md transition-colors">
+            <button onClick={() => setShowSettings(true)} className="p-2 text-zinc-400 hover:text-white hover:bg-zinc-800/50 rounded-md transition-colors" data-testid="start-settings-btn">
               <Settings size={18} />
             </button>
           </Tooltip>
@@ -950,6 +962,17 @@ Beispiel: Erstelle eine moderne Todo-App mit dunklem Design. Die App soll Todos 
       </main>
 
       {showGitHubModal && <GitHubImportModal onClose={() => setShowGitHubModal(false)} onImport={(p) => { setShowGitHubModal(false); navigate(`/workspace/${p.id}`); }} />}
+      
+      {showSettings && (
+        <SettingsModal 
+          isOpen={showSettings} 
+          onClose={() => setShowSettings(false)}
+          ollamaStatus={ollamaStatus}
+          useOllama={useOllama}
+          setUseOllama={setUseOllama}
+          toggleOllama={toggleOllama}
+        />
+      )}
     </div>
   );
 };
