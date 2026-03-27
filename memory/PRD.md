@@ -5,7 +5,7 @@
 **Domain:** Developer Tools / AI Coding Assistant  
 **Type:** Local Docker-based Single-User System for Unraid  
 **Status:** ✅ FEATURE-COMPLETE & TESTED
-**Last Updated:** 27. März 2026
+**Last Updated:** 4. Dezember 2025
 
 ## Original Problem Statement
 Ein lokales, Docker-basiertes Single-User-System auf Unraid, das Software-Projekte per Chat plant, recherchiert, programmiert, testet, debuggt, in einer Live-Preview ausführt und in GitHub oder lokal ausgibt.
@@ -34,6 +34,11 @@ Ein lokales, Docker-basiertes Single-User-System auf Unraid, das Software-Projek
 - [x] Projekt-Zusammenfassung
 - [x] Multi-Tab Editor
 - [x] Ollama Settings UI
+- [x] **Settings-Modal für API Keys (NEU)**
+  - OpenAI API Key eingeben & speichern
+  - GitHub Token eingeben & speichern
+  - Keys persistent in MongoDB
+  - Zugänglich von StartScreen & Workspace
 
 ### P2 (Medium Priority) - ✅ ERLEDIGT
 - [x] **6 Projekt-Templates:**
@@ -92,6 +97,10 @@ Ein lokales, Docker-basiertes Single-User-System auf Unraid, das Software-Projek
 - POST /api/github/import
 - GET /api/ollama/status
 - POST /api/ollama/enable
+- GET /api/settings - Aktuelle Settings (ohne Keys zu exponieren)
+- PUT /api/settings - Settings aktualisieren
+- DELETE /api/settings/openai-key - OpenAI Key löschen
+- DELETE /api/settings/github-token - GitHub Token löschen
 
 ## Future Backlog
 
@@ -102,6 +111,13 @@ Ein lokales, Docker-basiertes Single-User-System auf Unraid, das Software-Projek
 - [ ] Weitere Templates (Svelte, Angular, Django)
 
 ## Changelog
+
+### 4. Dezember 2025 - SETTINGS FEATURE COMPLETE
+- ✅ Settings-Modal mit 3 Tabs (API Keys, LLM, Tastatur)
+- ✅ OpenAI API Key & GitHub Token persistent in MongoDB
+- ✅ Settings-Button auf StartScreen & Workspace
+- ✅ Backend lädt Settings beim Start aus DB
+- ✅ Alle API Endpoints getestet (iteration_7.json: 100% Pass)
 
 ### 27. März 2026 - P2/P3 COMPLETE
 - ✅ 6 Projekt-Templates auf Homepage
