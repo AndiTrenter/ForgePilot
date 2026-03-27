@@ -8,7 +8,8 @@ import {
   CheckCircle2, Zap, Bug, Eye, X, Code, ListTodo,
   Folder, File, ChevronDown, Save, LayoutPanelLeft, GitCommit,
   Check, Circle, ArrowRight, Lock, Globe, Upload, Search,
-  ExternalLink, Mic, MicOff, Square
+  ExternalLink, Mic, MicOff, Square, PanelRightClose, PanelRightOpen,
+  Maximize2, Minimize2
 } from "lucide-react";
 import Prism from 'prismjs';
 import 'prismjs/themes/prism-tomorrow.css';
@@ -779,6 +780,8 @@ const Workspace = () => {
   const [agentProgress, setAgentProgress] = useState({ iteration: 0, maxIterations: 20, currentTool: null, isAutonomous: false });
   // Agent Activity Feed - detaillierte Anzeige was gerade passiert
   const [agentActivities, setAgentActivities] = useState([]);
+  // Right Panel (Preview) visibility
+  const [showRightPanel, setShowRightPanel] = useState(true);
   // Voice Input State
   const [isListening, setIsListening] = useState(false);
   const [speechSupported, setSpeechSupported] = useState(false);
@@ -1206,6 +1209,15 @@ const Workspace = () => {
           <Tooltip text="Zeigt/versteckt den Datei-Explorer links" position="bottom">
             <button onClick={() => setShowFileExplorer(!showFileExplorer)} className={`p-2 rounded-md ${showFileExplorer ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white hover:bg-zinc-800/50'}`} data-testid="toggle-file-explorer-btn"><LayoutPanelLeft size={18} /></button>
           </Tooltip>
+          <Tooltip text={showRightPanel ? "Preview-Panel schließen" : "Preview-Panel öffnen"} position="bottom">
+            <button 
+              onClick={() => setShowRightPanel(!showRightPanel)} 
+              className={`p-2 rounded-md ${showRightPanel ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white hover:bg-zinc-800/50'}`} 
+              data-testid="toggle-right-panel-btn"
+            >
+              {showRightPanel ? <PanelRightClose size={18} /> : <PanelRightOpen size={18} />}
+            </button>
+          </Tooltip>
           <Tooltip text="Einstellungen (Ollama, LLM-Auswahl)" position="bottom">
             <button onClick={() => setShowSettings(true)} className="p-2 text-zinc-400 hover:text-white hover:bg-zinc-800/50 rounded-md" data-testid="settings-btn"><Settings size={18} /></button>
           </Tooltip>
@@ -1247,8 +1259,8 @@ const Workspace = () => {
           </div>
         )}
 
-        {/* Chat Panel */}
-        <div className="w-[420px] border-r border-zinc-800 bg-zinc-950 flex flex-col shrink-0 overflow-hidden">
+        {/* Chat Panel - expands when right panel is hidden */}
+        <div className={`border-r border-zinc-800 bg-zinc-950 flex flex-col shrink-0 overflow-hidden transition-all duration-300 ${showRightPanel ? 'w-[420px]' : 'flex-1'}`}>
           <div className="p-3 border-b border-zinc-800 bg-zinc-900/30 shrink-0" data-testid="agent-timeline">
             <h3 className="text-xs font-semibold uppercase tracking-widest text-zinc-500 mb-2">Agent Status</h3>
             <div className="flex flex-wrap gap-1.5">
@@ -1342,7 +1354,8 @@ const Workspace = () => {
         </div>
 
         {/* Right Panel - Preview/Editor/Logs/Roadmap */}
-        <div className="flex-1 bg-zinc-900/50 flex flex-col overflow-hidden isolate">
+        {showRightPanel && (
+        <div className="flex-1 bg-zinc-900/50 flex flex-col overflow-hidden panel-expanded">
           <div className="h-10 border-b border-zinc-800 flex items-center px-2 bg-zinc-950/50 shrink-0">
             <div className="flex items-center gap-1">
               {[
@@ -1371,6 +1384,9 @@ const Workspace = () => {
                 <button onClick={refreshPreview} className="p-1.5 text-zinc-400 hover:text-white"><RefreshCw size={14} /></button>
               </Tooltip>
             )}
+            <Tooltip text="Panel schließen" position="bottom">
+              <button onClick={() => setShowRightPanel(false)} className="p-1.5 text-zinc-400 hover:text-white ml-2"><X size={14} /></button>
+            </Tooltip>
           </div>
 
           <div className="flex-1 overflow-hidden">
@@ -1388,6 +1404,14 @@ const Workspace = () => {
                         {previewInfo?.has_preview ? previewInfo.entry_point : "Keine Preview verfügbar"}
                       </div>
                     </div>
+                    <Tooltip text="Preview in neuem Tab öffnen" position="bottom">
+                      <button 
+                        onClick={() => previewInfo?.preview_url && window.open(`${BACKEND_URL}${previewInfo.preview_url}`, '_blank')}
+                        className="p-1 text-zinc-500 hover:text-white"
+                      >
+                        <ExternalLink size={12} />
+                      </button>
+                    </Tooltip>
                   </div>
                   <div className="flex-1 bg-white" data-testid="live-preview-iframe">
                     {previewInfo?.has_preview ? (
@@ -1488,6 +1512,7 @@ const Workspace = () => {
             )}
           </div>
         </div>
+        )}
       </div>
 
       {/* Settings Modal */}
