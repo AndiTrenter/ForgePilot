@@ -636,22 +636,43 @@ const SettingsModal = ({ isOpen, onClose, onRefreshLLMStatus }) => {
       const res = await axios.get(`${API}/update/status`);
       setUpdateStatus(res.data);
     } catch (e) {
-      console.error('Failed to load update status');
+      console.error('Failed to load update status:', e.message);
+      // Setze Fallback-Werte damit die UI nicht leer bleibt
+      setUpdateStatus(prev => ({
+        ...prev,
+        installed_version: prev?.installed_version || 'Unbekannt',
+        latest_version: prev?.latest_version || '-',
+        update_available: false
+      }));
     }
   };
 
   const checkForUpdates = async () => {
     setCheckingUpdate(true);
+    setMessage(null);
     try {
       const res = await axios.post(`${API}/update/check`);
       setUpdateStatus(res.data);
       if (res.data.update_available) {
         setMessage({ type: 'success', text: `Update verfügbar: ${res.data.latest_version}` });
       } else {
-        setMessage({ type: 'success', text: 'Keine Updates verfügbar' });
+        setMessage({ type: 'success', text: `Keine Updates verfügbar (Version ${res.data.installed_version})` });
       }
     } catch (e) {
-      setMessage({ type: 'error', text: 'Fehler beim Prüfen auf Updates' });
+      console.error('Update check failed:', e.message);
+      // Versuche /api/version als Fallback
+      try {
+        const versionRes = await axios.get(`${API}/version`);
+        setUpdateStatus(prev => ({
+          ...prev,
+          installed_version: versionRes.data.version,
+          latest_version: '-',
+          update_available: false
+        }));
+        setMessage({ type: 'error', text: `Konnte GitHub nicht erreichen (Version ${versionRes.data.version})` });
+      } catch (e2) {
+        setMessage({ type: 'error', text: 'Backend nicht erreichbar' });
+      }
     }
     setCheckingUpdate(false);
   };
@@ -1092,6 +1113,27 @@ const SettingsModal = ({ isOpen, onClose, onRefreshLLMStatus }) => {
               <div className="text-xs text-zinc-500 mt-4">
                 <p>ForgePilot prüft automatisch auf Updates.</p>
                 <p>Updates können über die UI oder per Docker installiert werden.</p>
+              </div>
+              
+              {/* Debug Info */}
+              <div className="mt-4 p-3 bg-zinc-800/30 rounded-lg border border-zinc-700/50">
+                <h4 className="text-xs font-medium text-zinc-400 mb-2">Debug Info</h4>
+                <div className="text-xs text-zinc-500 font-mono space-y-1">
+                  <p>API: {API}</p>
+                  <button 
+                    onClick={async () => {
+                      try {
+                        const res = await axios.get(`${API}/version`);
+                        setMessage({ type: 'success', text: `Backend erreichbar: ${JSON.stringify(res.data)}` });
+                      } catch (e) {
+                        setMessage({ type: 'error', text: `Backend Fehler: ${e.message}` });
+                      }
+                    }}
+                    className="px-2 py-1 bg-zinc-700 hover:bg-zinc-600 rounded text-zinc-300"
+                  >
+                    API Test
+                  </button>
+                </div>
               </div>
             </div>
           )}
