@@ -6,7 +6,7 @@ import pytest
 import requests
 import os
 
-BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://forged-workflow.preview.emergentagent.com').rstrip('/')
+BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://forgepilot-docker.preview.emergentagent.com').rstrip('/')
 
 # Test credentials from review request
 TEST_OPENAI_KEY = "sk-test-key-12345"
