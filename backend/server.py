@@ -1,5 +1,5 @@
 from fastapi import FastAPI, APIRouter, HTTPException, WebSocket, WebSocketDisconnect, Query, Body
-from fastapi.responses import StreamingResponse, FileResponse
+from fastapi.responses import StreamingResponse, FileResponse, JSONResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -21,66 +21,108 @@ import re
 import httpx
 
 ROOT_DIR = Path(__file__).parent
+APP_ROOT = ROOT_DIR.parent
 load_dotenv(ROOT_DIR / '.env')
 
+# App Version
+APP_VERSION = "1.0.0"
+try:
+    version_file = APP_ROOT / "VERSION"
+    if version_file.exists():
+        APP_VERSION = version_file.read_text().strip()
+except:
+    pass
+
 # MongoDB connection
-mongo_url = os.environ['MONGO_URL']
+mongo_url = os.environ.get('MONGO_URL', 'mongodb://localhost:27017')
 client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+db = client[os.environ.get('DB_NAME', 'forgepilot')]
 
 # Settings collection for API keys
 settings_collection = db.settings
+update_collection = db.updates
 
 # Global settings (loaded from DB or env)
 class AppSettings:
     openai_api_key: str = os.environ.get('OPENAI_API_KEY', '')
     github_token: str = os.environ.get('GITHUB_TOKEN', '')
     ollama_url: str = os.environ.get('OLLAMA_URL', 'http://localhost:11434')
+    ollama_model: str = os.environ.get('OLLAMA_MODEL', 'llama3')
+    llm_provider: str = os.environ.get('LLM_PROVIDER', 'auto')  # openai, ollama, auto
     use_ollama: bool = os.environ.get('USE_OLLAMA', 'false').lower() == 'true'
+    # Track if settings come from env (read-only) or DB (editable)
+    settings_from_env: bool = bool(os.environ.get('OPENAI_API_KEY', ''))
 
 app_settings = AppSettings()
 
 # OpenAI client (will be updated when settings change)
 openai_client = AsyncOpenAI(api_key=app_settings.openai_api_key) if app_settings.openai_api_key else None
 
-# Load settings from database on startup
-async def load_settings_from_db():
-    global openai_client, app_settings
-    saved = await settings_collection.find_one({"_id": "app_settings"})
-    if saved:
-        if saved.get('openai_api_key'):
-            app_settings.openai_api_key = saved['openai_api_key']
-            openai_client = AsyncOpenAI(api_key=app_settings.openai_api_key)
-        if saved.get('github_token'):
-            app_settings.github_token = saved['github_token']
-        if saved.get('ollama_url'):
-            app_settings.ollama_url = saved['ollama_url']
-        if saved.get('use_ollama') is not None:
-            app_settings.use_ollama = saved['use_ollama']
-    logger.info(f"Settings loaded: OpenAI key set: {bool(app_settings.openai_api_key)}, GitHub token set: {bool(app_settings.github_token)}")
-
-# Ollama settings
-OLLAMA_URL = app_settings.ollama_url
-USE_OLLAMA = app_settings.use_ollama
-
-# GitHub token (use from settings)
-github_token = app_settings.github_token
-
-# Workspace base directory
-WORKSPACES_DIR = Path('/app/workspaces')
-WORKSPACES_DIR.mkdir(exist_ok=True)
+# Ollama availability cache
+ollama_available = False
+ollama_models = []
 
 # Create the main app
-app = FastAPI(title="ForgePilot API")
+app = FastAPI(title="ForgePilot API", version=APP_VERSION)
 api_router = APIRouter(prefix="/api")
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# Startup event to load settings
+# Load settings from database on startup
+async def load_settings_from_db():
+    global openai_client, app_settings
+    saved = await settings_collection.find_one({"_id": "app_settings"})
+    if saved:
+        # Only override if not set in env
+        if not os.environ.get('OPENAI_API_KEY') and saved.get('openai_api_key'):
+            app_settings.openai_api_key = saved['openai_api_key']
+            openai_client = AsyncOpenAI(api_key=app_settings.openai_api_key)
+        if not os.environ.get('GITHUB_TOKEN') and saved.get('github_token'):
+            app_settings.github_token = saved['github_token']
+        if saved.get('ollama_url'):
+            app_settings.ollama_url = saved['ollama_url']
+        if saved.get('ollama_model'):
+            app_settings.ollama_model = saved['ollama_model']
+        if saved.get('llm_provider'):
+            app_settings.llm_provider = saved['llm_provider']
+        if saved.get('use_ollama') is not None:
+            app_settings.use_ollama = saved['use_ollama']
+    
+    logger.info(f"Settings loaded: OpenAI key set: {bool(app_settings.openai_api_key)}, GitHub token set: {bool(app_settings.github_token)}, LLM Provider: {app_settings.llm_provider}")
+
+# Check Ollama availability
+async def check_ollama_availability():
+    global ollama_available, ollama_models
+    try:
+        async with httpx.AsyncClient(timeout=5) as http_client:
+            response = await http_client.get(f"{app_settings.ollama_url}/api/tags")
+            if response.status_code == 200:
+                models = response.json().get("models", [])
+                ollama_available = True
+                ollama_models = [m["name"] for m in models]
+                logger.info(f"Ollama available at {app_settings.ollama_url} with models: {ollama_models}")
+                return True
+    except Exception as e:
+        logger.warning(f"Ollama not available: {e}")
+    ollama_available = False
+    ollama_models = []
+    return False
+
+# Startup event
 @app.on_event("startup")
 async def startup_event():
     await load_settings_from_db()
+    await check_ollama_availability()
+
+# GitHub token (use from settings)
+@property
+def github_token():
+    return app_settings.github_token
+
+# Workspace base directory
+WORKSPACES_DIR = Path('/app/workspaces')
+WORKSPACES_DIR.mkdir(exist_ok=True)
 
 # ============== MODELS ==============
 
@@ -88,13 +130,41 @@ class SettingsUpdate(BaseModel):
     openai_api_key: Optional[str] = None
     github_token: Optional[str] = None
     ollama_url: Optional[str] = None
+    ollama_model: Optional[str] = None
+    llm_provider: Optional[str] = None
     use_ollama: Optional[bool] = None
 
 class SettingsResponse(BaseModel):
     openai_api_key_set: bool
     github_token_set: bool
     ollama_url: str
+    ollama_model: str
+    llm_provider: str
     use_ollama: bool
+    settings_from_env: bool
+    ollama_available: bool
+    ollama_models: List[str]
+
+class LLMStatusResponse(BaseModel):
+    provider: str
+    active_provider: str
+    ollama_available: bool
+    ollama_url: str
+    ollama_model: str
+    ollama_models: List[str]
+    openai_available: bool
+    auto_fallback_active: bool
+
+class UpdateStatusResponse(BaseModel):
+    installed_version: str
+    latest_version: Optional[str]
+    update_available: bool
+    checking: bool
+    last_checked_at: Optional[str]
+    release_notes: Optional[str]
+    previous_version: Optional[str]
+    last_update_at: Optional[str]
+    last_rollback_at: Optional[str]
 
 class ProjectCreate(BaseModel):
     name: str
@@ -193,6 +263,17 @@ def get_file_tree(workspace_path: Path, prefix: str = "") -> List[Dict]:
         logger.error(f"Error getting file tree: {e}")
     return items
 
+def get_active_llm_provider():
+    """Determine which LLM provider to use based on settings and availability"""
+    if app_settings.llm_provider == "openai":
+        return "openai"
+    elif app_settings.llm_provider == "ollama":
+        return "ollama" if ollama_available else "openai"
+    else:  # auto
+        if ollama_available:
+            return "ollama"
+        return "openai"
+
 # ============== SETTINGS ENDPOINTS ==============
 
 @api_router.get("/settings", response_model=SettingsResponse)
@@ -202,13 +283,18 @@ async def get_settings():
         openai_api_key_set=bool(app_settings.openai_api_key),
         github_token_set=bool(app_settings.github_token),
         ollama_url=app_settings.ollama_url,
-        use_ollama=app_settings.use_ollama
+        ollama_model=app_settings.ollama_model,
+        llm_provider=app_settings.llm_provider,
+        use_ollama=app_settings.use_ollama,
+        settings_from_env=app_settings.settings_from_env,
+        ollama_available=ollama_available,
+        ollama_models=ollama_models
     )
 
 @api_router.put("/settings")
 async def update_settings(settings: SettingsUpdate):
     """Update and save settings"""
-    global openai_client, app_settings, github_token
+    global openai_client, app_settings, ollama_available, ollama_models
     
     update_data = {}
     
@@ -222,12 +308,22 @@ async def update_settings(settings: SettingsUpdate):
     
     if settings.github_token is not None:
         app_settings.github_token = settings.github_token
-        github_token = settings.github_token
         update_data['github_token'] = settings.github_token
     
     if settings.ollama_url is not None:
         app_settings.ollama_url = settings.ollama_url
         update_data['ollama_url'] = settings.ollama_url
+        # Re-check Ollama availability with new URL
+        await check_ollama_availability()
+    
+    if settings.ollama_model is not None:
+        app_settings.ollama_model = settings.ollama_model
+        update_data['ollama_model'] = settings.ollama_model
+    
+    if settings.llm_provider is not None:
+        if settings.llm_provider in ['openai', 'ollama', 'auto']:
+            app_settings.llm_provider = settings.llm_provider
+            update_data['llm_provider'] = settings.llm_provider
     
     if settings.use_ollama is not None:
         app_settings.use_ollama = settings.use_ollama
@@ -247,7 +343,9 @@ async def update_settings(settings: SettingsUpdate):
         "success": True,
         "message": "Einstellungen gespeichert",
         "openai_api_key_set": bool(app_settings.openai_api_key),
-        "github_token_set": bool(app_settings.github_token)
+        "github_token_set": bool(app_settings.github_token),
+        "llm_provider": app_settings.llm_provider,
+        "active_provider": get_active_llm_provider()
     }
 
 @api_router.delete("/settings/openai-key")
@@ -266,15 +364,255 @@ async def delete_openai_key():
 @api_router.delete("/settings/github-token")
 async def delete_github_token():
     """Delete GitHub token"""
-    global github_token, app_settings
+    global app_settings
     app_settings.github_token = ""
-    github_token = ""
     await settings_collection.update_one(
         {"_id": "app_settings"},
         {"$unset": {"github_token": ""}},
         upsert=True
     )
     return {"success": True, "message": "GitHub Token gelöscht"}
+
+# ============== LLM STATUS ENDPOINT ==============
+
+@api_router.get("/llm/status", response_model=LLMStatusResponse)
+async def get_llm_status():
+    """Get current LLM status including Ollama availability"""
+    # Refresh Ollama status
+    await check_ollama_availability()
+    
+    active_provider = get_active_llm_provider()
+    auto_fallback = app_settings.llm_provider == "auto" and not ollama_available and bool(app_settings.openai_api_key)
+    
+    return LLMStatusResponse(
+        provider=app_settings.llm_provider,
+        active_provider=active_provider,
+        ollama_available=ollama_available,
+        ollama_url=app_settings.ollama_url,
+        ollama_model=app_settings.ollama_model,
+        ollama_models=ollama_models,
+        openai_available=bool(app_settings.openai_api_key),
+        auto_fallback_active=auto_fallback
+    )
+
+@api_router.post("/llm/refresh")
+async def refresh_llm_status():
+    """Refresh LLM status (check Ollama availability)"""
+    await check_ollama_availability()
+    return await get_llm_status()
+
+# ============== UPDATE SYSTEM ==============
+
+@api_router.get("/update/status", response_model=UpdateStatusResponse)
+async def get_update_status():
+    """Get current update status"""
+    update_info = await update_collection.find_one({"_id": "update_status"}) or {}
+    
+    return UpdateStatusResponse(
+        installed_version=APP_VERSION,
+        latest_version=update_info.get("latest_version"),
+        update_available=update_info.get("update_available", False),
+        checking=update_info.get("checking", False),
+        last_checked_at=update_info.get("last_checked_at"),
+        release_notes=update_info.get("release_notes"),
+        previous_version=update_info.get("previous_version"),
+        last_update_at=update_info.get("last_update_at"),
+        last_rollback_at=update_info.get("last_rollback_at")
+    )
+
+@api_router.post("/update/check")
+async def check_for_updates():
+    """Check GitHub for new releases"""
+    await update_collection.update_one(
+        {"_id": "update_status"},
+        {"$set": {"checking": True}},
+        upsert=True
+    )
+    
+    try:
+        async with httpx.AsyncClient(timeout=30) as http_client:
+            # Check GitHub API for latest release
+            response = await http_client.get(
+                "https://api.github.com/repos/AndiTrenter/ForgePilot/releases/latest",
+                headers={"Accept": "application/vnd.github.v3+json"}
+            )
+            
+            if response.status_code == 200:
+                release = response.json()
+                latest_version = release.get("tag_name", "").lstrip("v")
+                release_notes = release.get("body", "")
+                
+                # Compare versions
+                def parse_version(v):
+                    try:
+                        return tuple(map(int, v.split(".")))
+                    except:
+                        return (0, 0, 0)
+                
+                current = parse_version(APP_VERSION)
+                latest = parse_version(latest_version)
+                update_available = latest > current
+                
+                await update_collection.update_one(
+                    {"_id": "update_status"},
+                    {"$set": {
+                        "checking": False,
+                        "latest_version": latest_version,
+                        "update_available": update_available,
+                        "release_notes": release_notes,
+                        "last_checked_at": datetime.now(timezone.utc).isoformat()
+                    }},
+                    upsert=True
+                )
+                
+                return {
+                    "success": True,
+                    "installed_version": APP_VERSION,
+                    "latest_version": latest_version,
+                    "update_available": update_available,
+                    "release_notes": release_notes
+                }
+            elif response.status_code == 404:
+                # No releases yet
+                await update_collection.update_one(
+                    {"_id": "update_status"},
+                    {"$set": {
+                        "checking": False,
+                        "latest_version": APP_VERSION,
+                        "update_available": False,
+                        "last_checked_at": datetime.now(timezone.utc).isoformat()
+                    }},
+                    upsert=True
+                )
+                return {
+                    "success": True,
+                    "installed_version": APP_VERSION,
+                    "latest_version": APP_VERSION,
+                    "update_available": False,
+                    "message": "Keine Releases gefunden"
+                }
+            else:
+                raise HTTPException(status_code=502, detail=f"GitHub API error: {response.status_code}")
+                
+    except httpx.TimeoutException:
+        await update_collection.update_one(
+            {"_id": "update_status"},
+            {"$set": {"checking": False}},
+            upsert=True
+        )
+        raise HTTPException(status_code=504, detail="Timeout beim Prüfen auf Updates")
+    except Exception as e:
+        await update_collection.update_one(
+            {"_id": "update_status"},
+            {"$set": {"checking": False}},
+            upsert=True
+        )
+        logger.error(f"Update check failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.post("/update/install")
+async def install_update(target_version: str = None):
+    """Install an update (requires Docker access)"""
+    update_info = await update_collection.find_one({"_id": "update_status"}) or {}
+    
+    if not update_info.get("update_available") and not target_version:
+        raise HTTPException(status_code=400, detail="Kein Update verfügbar")
+    
+    version = target_version or update_info.get("latest_version")
+    
+    # Store current version for rollback
+    await update_collection.update_one(
+        {"_id": "update_status"},
+        {"$set": {
+            "previous_version": APP_VERSION,
+            "update_in_progress": True,
+            "update_started_at": datetime.now(timezone.utc).isoformat()
+        }},
+        upsert=True
+    )
+    
+    # Return instructions for the update (actual update happens via Docker)
+    return {
+        "success": True,
+        "message": "Update wird vorbereitet",
+        "instructions": {
+            "step1": f"docker pull ghcr.io/anditrenter/forgepilot/forgepilot-backend:v{version}",
+            "step2": f"docker pull ghcr.io/anditrenter/forgepilot/forgepilot-frontend:v{version}",
+            "step3": "docker-compose -f docker-compose.unraid.yml down",
+            "step4": "docker-compose -f docker-compose.unraid.yml up -d",
+        },
+        "current_version": APP_VERSION,
+        "target_version": version,
+        "rollback_available": True
+    }
+
+@api_router.post("/update/rollback")
+async def rollback_update():
+    """Rollback to previous version"""
+    update_info = await update_collection.find_one({"_id": "update_status"}) or {}
+    previous_version = update_info.get("previous_version")
+    
+    if not previous_version:
+        raise HTTPException(status_code=400, detail="Keine vorherige Version zum Zurücksetzen verfügbar")
+    
+    await update_collection.update_one(
+        {"_id": "update_status"},
+        {"$set": {
+            "rollback_in_progress": True,
+            "last_rollback_at": datetime.now(timezone.utc).isoformat()
+        }},
+        upsert=True
+    )
+    
+    return {
+        "success": True,
+        "message": "Rollback wird vorbereitet",
+        "instructions": {
+            "step1": f"docker pull ghcr.io/anditrenter/forgepilot/forgepilot-backend:v{previous_version}",
+            "step2": f"docker pull ghcr.io/anditrenter/forgepilot/forgepilot-frontend:v{previous_version}",
+            "step3": "docker-compose -f docker-compose.unraid.yml down",
+            "step4": "docker-compose -f docker-compose.unraid.yml up -d",
+        },
+        "current_version": APP_VERSION,
+        "rollback_version": previous_version
+    }
+
+@api_router.get("/health")
+async def health_check():
+    """Health check endpoint for update verification"""
+    # Check MongoDB
+    try:
+        await db.command("ping")
+        mongo_ok = True
+    except:
+        mongo_ok = False
+    
+    # Check Ollama if configured
+    ollama_ok = ollama_available or app_settings.llm_provider == "openai"
+    
+    # Check OpenAI if configured
+    openai_ok = bool(app_settings.openai_api_key) or app_settings.llm_provider == "ollama"
+    
+    all_ok = mongo_ok and (ollama_ok or openai_ok)
+    
+    return {
+        "status": "healthy" if all_ok else "degraded",
+        "version": APP_VERSION,
+        "checks": {
+            "mongodb": mongo_ok,
+            "llm": ollama_ok or openai_ok,
+            "ollama": ollama_available,
+            "openai": bool(app_settings.openai_api_key)
+        }
+    }
+
+@api_router.get("/version")
+async def get_version():
+    """Get current app version"""
+    return {
+        "version": APP_VERSION,
+        "name": "ForgePilot"
+    }
 
 # ============== OPENAI TOOLS ==============
 
@@ -293,6 +631,43 @@ AGENT_TOOLS = [
     {"type": "function", "function": {"name": "ask_user", "description": "Ask user a question when clarification is needed", "parameters": {"type": "object", "properties": {"question": {"type": "string"}}, "required": ["question"]}}},
     {"type": "function", "function": {"name": "mark_complete", "description": "Mark project as complete and ready for push", "parameters": {"type": "object", "properties": {"summary": {"type": "string"}, "tested_features": {"type": "array", "items": {"type": "string"}}}, "required": ["summary", "tested_features"]}}}
 ]
+
+async def call_ollama(messages: list, model: str = None) -> str:
+    """Call Ollama API for chat completion"""
+    model = model or app_settings.ollama_model
+    
+    try:
+        async with httpx.AsyncClient(timeout=120) as http_client:
+            # Convert messages to Ollama format
+            ollama_messages = []
+            for msg in messages:
+                role = msg.get("role", "user")
+                if role == "system":
+                    ollama_messages.append({"role": "system", "content": msg.get("content", "")})
+                elif role == "user":
+                    ollama_messages.append({"role": "user", "content": msg.get("content", "")})
+                elif role == "assistant":
+                    ollama_messages.append({"role": "assistant", "content": msg.get("content", "")})
+            
+            response = await http_client.post(
+                f"{app_settings.ollama_url}/api/chat",
+                json={
+                    "model": model,
+                    "messages": ollama_messages,
+                    "stream": False
+                }
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                return result.get("message", {}).get("content", "")
+            else:
+                logger.error(f"Ollama API error: {response.status_code} - {response.text}")
+                return None
+                
+    except Exception as e:
+        logger.error(f"Ollama call failed: {e}")
+        return None
 
 async def execute_tool(tool_name: str, arguments: dict, workspace_path: Path, project_id: str) -> dict:
     """Execute a tool and return result with continue flag"""
@@ -394,7 +769,6 @@ async def execute_tool(tool_name: str, arguments: dict, workspace_path: Path, pr
             await update_agent(project_id, "tester", "running", f"Teste: {test_type}")
             
             if test_type == "syntax":
-                # Check HTML/CSS/JS syntax
                 errors = []
                 for f in workspace_path.rglob("*.js"):
                     try:
@@ -404,7 +778,6 @@ async def execute_tool(tool_name: str, arguments: dict, workspace_path: Path, pr
                 result["output"] = "✓ Syntax OK" if not errors else "Syntax-Fehler:\n" + "\n".join(errors)
             
             elif test_type == "run":
-                # Try to run the code
                 index_html = workspace_path / "index.html"
                 if index_html.exists():
                     result["output"] = "✓ index.html existiert - Preview verfügbar"
@@ -499,61 +872,82 @@ WICHTIG:
     iteration = 0
     should_continue = True
     
+    # Determine which LLM to use
+    active_provider = get_active_llm_provider()
+    logger.info(f"Using LLM provider: {active_provider}")
+    
     while should_continue and iteration < max_iterations:
         iteration += 1
         
         try:
-            # Get AI response
-            response = await openai_client.chat.completions.create(
-                model="gpt-4o",
-                messages=messages,
-                tools=AGENT_TOOLS,
-                tool_choice="auto",
-                max_tokens=4000
-            )
-            
-            assistant_message = response.choices[0].message
-            content = assistant_message.content or ""
-            tool_calls = assistant_message.tool_calls or []
-            
-            # Yield content
-            if content:
-                yield f"data: {json.dumps({'content': content, 'iteration': iteration})}\n\n"
-            
-            # No tool calls = done with this iteration
-            if not tool_calls:
-                should_continue = False
-                break
-            
-            # Execute tools
-            messages.append({"role": "assistant", "content": content, "tool_calls": [{"id": tc.id, "type": "function", "function": {"name": tc.function.name, "arguments": tc.function.arguments}} for tc in tool_calls]})
-            
-            for tc in tool_calls:
-                try:
-                    args = json.loads(tc.function.arguments)
-                    tool_name = tc.function.name
-                    
-                    yield f"data: {json.dumps({'tool': tool_name, 'args': {k: str(v)[:100] for k, v in args.items()}})}\n\n"
-                    
-                    result = await execute_tool(tool_name, args, workspace_path, project_id)
-                    
-                    yield f"data: {json.dumps({'tool_result': result['output'][:500]})}\n\n"
-                    
-                    messages.append({"role": "tool", "tool_call_id": tc.id, "content": result["output"]})
-                    
-                    # Check if we should stop
-                    if not result["continue"]:
+            if active_provider == "ollama" and ollama_available:
+                # Use Ollama
+                response_text = await call_ollama(messages)
+                if response_text:
+                    yield f"data: {json.dumps({'content': response_text, 'iteration': iteration, 'provider': 'ollama'})}\n\n"
+                    messages.append({"role": "assistant", "content": response_text})
+                else:
+                    # Fallback to OpenAI
+                    if openai_client:
+                        active_provider = "openai"
+                        yield f"data: {json.dumps({'warning': 'Ollama fehlgeschlagen, nutze OpenAI', 'provider': 'openai'})}\n\n"
+                    else:
+                        yield f"data: {json.dumps({'error': 'Kein LLM verfügbar'})}\n\n"
                         should_continue = False
-                        if result["ask_user"]:
-                            yield f"data: {json.dumps({'ask_user': True, 'question': result['output']})}\n\n"
-                        if result["complete"]:
-                            yield f"data: {json.dumps({'complete': True})}\n\n"
                         break
+                should_continue = False  # Ollama doesn't support tool calling in same way
+            else:
+                # Use OpenAI
+                if not openai_client:
+                    yield f"data: {json.dumps({'error': 'Kein OpenAI API Key konfiguriert'})}\n\n"
+                    should_continue = False
+                    break
                     
-                except json.JSONDecodeError:
-                    messages.append({"role": "tool", "tool_call_id": tc.id, "content": "JSON Parse Error"})
+                response = await openai_client.chat.completions.create(
+                    model="gpt-4o",
+                    messages=messages,
+                    tools=AGENT_TOOLS,
+                    tool_choice="auto",
+                    max_tokens=4000
+                )
+                
+                assistant_message = response.choices[0].message
+                content = assistant_message.content or ""
+                tool_calls = assistant_message.tool_calls or []
+                
+                if content:
+                    yield f"data: {json.dumps({'content': content, 'iteration': iteration, 'provider': 'openai'})}\n\n"
+                
+                if not tool_calls:
+                    should_continue = False
+                    break
+                
+                messages.append({"role": "assistant", "content": content, "tool_calls": [{"id": tc.id, "type": "function", "function": {"name": tc.function.name, "arguments": tc.function.arguments}} for tc in tool_calls]})
+                
+                for tc in tool_calls:
+                    try:
+                        args = json.loads(tc.function.arguments)
+                        tool_name = tc.function.name
+                        
+                        yield f"data: {json.dumps({'tool': tool_name, 'args': {k: str(v)[:100] for k, v in args.items()}})}\n\n"
+                        
+                        result = await execute_tool(tool_name, args, workspace_path, project_id)
+                        
+                        yield f"data: {json.dumps({'tool_result': result['output'][:500]})}\n\n"
+                        
+                        messages.append({"role": "tool", "tool_call_id": tc.id, "content": result["output"]})
+                        
+                        if not result["continue"]:
+                            should_continue = False
+                            if result["ask_user"]:
+                                yield f"data: {json.dumps({'ask_user': True, 'question': result['output']})}\n\n"
+                            if result["complete"]:
+                                yield f"data: {json.dumps({'complete': True})}\n\n"
+                            break
+                        
+                    except json.JSONDecodeError:
+                        messages.append({"role": "tool", "tool_call_id": tc.id, "content": "JSON Parse Error"})
             
-            # Small delay to prevent rate limiting
             await asyncio.sleep(0.5)
             
         except Exception as e:
@@ -561,7 +955,6 @@ WICHTIG:
             yield f"data: {json.dumps({'error': str(e)})}\n\n"
             should_continue = False
     
-    # Update final status
     if iteration >= max_iterations:
         yield f"data: {json.dumps({'warning': 'Max iterations erreicht'})}\n\n"
     
@@ -571,7 +964,13 @@ WICHTIG:
 
 @api_router.get("/")
 async def root():
-    return {"message": "ForgePilot API", "version": "2.0.0", "ollama": USE_OLLAMA}
+    return {
+        "message": "ForgePilot API",
+        "version": APP_VERSION,
+        "llm_provider": app_settings.llm_provider,
+        "active_provider": get_active_llm_provider(),
+        "ollama_available": ollama_available
+    }
 
 @api_router.post("/projects", response_model=Project)
 async def create_project(project: ProjectCreate):
@@ -633,11 +1032,9 @@ async def chat_autonomous(project_id: str, message: MessageCreate):
     workspace_path = Path(project.get('workspace_path', WORKSPACES_DIR / project_id))
     workspace_path.mkdir(exist_ok=True)
     
-    # Save user message
     user_msg = Message(project_id=project_id, content=message.content, role="user")
     await db.messages.insert_one(user_msg.model_dump())
     
-    # Get conversation history
     history = await db.messages.find({"project_id": project_id}, {"_id": 0}).sort("created_at", 1).to_list(20)
     messages_for_api = [{"role": msg["role"], "content": msg["content"]} for msg in history[-15:]]
     
@@ -646,12 +1043,11 @@ async def chat_autonomous(project_id: str, message: MessageCreate):
         files_created = []
         
         await update_agent(project_id, "orchestrator", "running", "Starte autonome Entwicklung...")
-        yield f"data: {json.dumps({'agent': 'orchestrator', 'status': 'running', 'autonomous': True})}\n\n"
+        yield f"data: {json.dumps({'agent': 'orchestrator', 'status': 'running', 'autonomous': True, 'provider': get_active_llm_provider()})}\n\n"
         
         async for chunk in run_autonomous_agent(project_id, workspace_path, messages_for_api):
             yield chunk
             
-            # Parse chunk to collect response
             if chunk.startswith('data: '):
                 try:
                     data = json.loads(chunk[6:])
@@ -660,7 +1056,6 @@ async def chat_autonomous(project_id: str, message: MessageCreate):
                 except:
                     pass
         
-        # Save AI response
         if full_response:
             ai_msg = Message(project_id=project_id, content=full_response, role="assistant", agent_type="orchestrator")
             await db.messages.insert_one(ai_msg.model_dump())
@@ -685,19 +1080,19 @@ async def get_agents(project_id: str):
 
 @api_router.get("/github/repos")
 async def get_github_repos():
-    if not github_token:
+    if not app_settings.github_token:
         raise HTTPException(status_code=400, detail="GitHub Token nicht konfiguriert")
-    async with httpx.AsyncClient() as client:
-        response = await client.get("https://api.github.com/user/repos", headers={"Authorization": f"token {github_token}"}, params={"per_page": 100, "sort": "updated"})
+    async with httpx.AsyncClient() as http_client:
+        response = await http_client.get("https://api.github.com/user/repos", headers={"Authorization": f"token {app_settings.github_token}"}, params={"per_page": 100, "sort": "updated"})
         response.raise_for_status()
         return {"repos": [{"name": r["name"], "full_name": r["full_name"], "url": r["clone_url"], "default_branch": r["default_branch"], "private": r["private"], "description": r.get("description") or ""} for r in response.json()]}
 
 @api_router.get("/github/branches")
 async def get_github_branches(repo: str = Query(...)):
-    if not github_token:
+    if not app_settings.github_token:
         raise HTTPException(status_code=400, detail="GitHub Token nicht konfiguriert")
-    async with httpx.AsyncClient() as client:
-        response = await client.get(f"https://api.github.com/repos/{repo}/branches", headers={"Authorization": f"token {github_token}"})
+    async with httpx.AsyncClient() as http_client:
+        response = await http_client.get(f"https://api.github.com/repos/{repo}/branches", headers={"Authorization": f"token {app_settings.github_token}"})
         response.raise_for_status()
         return {"branches": [b["name"] for b in response.json()]}
 
@@ -707,7 +1102,7 @@ async def import_from_github(data: GitHubImport):
     project_obj = Project(name=project_name, description=f"Importiert von {data.repo_url}", github_url=data.repo_url)
     workspace_path = WORKSPACES_DIR / project_obj.id
     
-    clone_url = data.repo_url.replace('https://', f'https://{github_token}@') if github_token else data.repo_url
+    clone_url = data.repo_url.replace('https://', f'https://{app_settings.github_token}@') if app_settings.github_token else data.repo_url
     git.Repo.clone_from(clone_url, workspace_path, branch=data.branch)
     
     project_obj.workspace_path = str(workspace_path)
@@ -828,26 +1223,24 @@ async def get_preview_info(project_id: str):
         "tested_features": project.get("tested_features", [])
     }
 
-# ============== OLLAMA ==============
+# ============== OLLAMA (legacy endpoints for compatibility) ==============
 
 @api_router.get("/ollama/status")
 async def get_ollama_status():
-    """Check if Ollama is available"""
-    try:
-        async with httpx.AsyncClient(timeout=5) as client:
-            response = await client.get(f"{OLLAMA_URL}/api/tags")
-            if response.status_code == 200:
-                models = response.json().get("models", [])
-                return {"available": True, "models": [m["name"] for m in models]}
-    except:
-        pass
-    return {"available": False, "models": []}
+    """Check if Ollama is available (legacy endpoint)"""
+    await check_ollama_availability()
+    return {"available": ollama_available, "models": ollama_models}
 
 @api_router.post("/ollama/enable")
 async def enable_ollama(model: str = "llama3"):
-    """Enable Ollama as primary LLM"""
-    global USE_OLLAMA
-    USE_OLLAMA = True
+    """Enable Ollama as primary LLM (legacy endpoint)"""
+    app_settings.llm_provider = "ollama"
+    app_settings.ollama_model = model
+    await settings_collection.update_one(
+        {"_id": "app_settings"},
+        {"$set": {"llm_provider": "ollama", "ollama_model": model}},
+        upsert=True
+    )
     return {"enabled": True, "model": model}
 
 # Include router

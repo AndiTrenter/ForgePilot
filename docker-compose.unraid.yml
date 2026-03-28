@@ -1,7 +1,7 @@
 version: '3.8'
 
 # ForgePilot für Unraid - Nutzt vorgebaute Images von GitHub Container Registry
-# Ersetze YOUR_GITHUB_USERNAME mit deinem GitHub Benutzernamen
+# GitHub Repository: https://github.com/AndiTrenter/ForgePilot
 
 services:
   mongodb:
@@ -17,40 +17,58 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 30s
 
   backend:
-    image: ghcr.io/YOUR_GITHUB_USERNAME/forgepilot/forgepilot-backend:latest
+    image: ghcr.io/anditrenter/forgepilot/forgepilot-backend:latest
     container_name: forgepilot-backend
     restart: unless-stopped
     depends_on:
       mongodb:
         condition: service_healthy
     environment:
-      - MONGO_URL=mongodb://mongodb:27017
+      # MongoDB Verbindung (intern im Docker-Netzwerk)
+      - MONGO_URL=mongodb://forgepilot-mongodb:27017
       - DB_NAME=forgepilot
+      # CORS erlaubt alle Origins
       - CORS_ORIGINS=*
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      # OpenAI API Key (erforderlich für GPT-4o)
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      # GitHub Token (optional für GitHub Import/Push)
       - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+      # Ollama Konfiguration (optional für lokale LLM)
       - OLLAMA_URL=${OLLAMA_URL:-http://host.docker.internal:11434}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3}
+      # LLM Provider: auto, openai, ollama
+      - LLM_PROVIDER=${LLM_PROVIDER:-auto}
     volumes:
       - workspaces:/app/workspaces
     ports:
       - "8001:8001"
     networks:
       - forgepilot-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
 
   frontend:
-    image: ghcr.io/YOUR_GITHUB_USERNAME/forgepilot/forgepilot-frontend:latest
+    image: ghcr.io/anditrenter/forgepilot/forgepilot-frontend:latest
     container_name: forgepilot-frontend
     restart: unless-stopped
     depends_on:
       - backend
-    environment:
-      - REACT_APP_BACKEND_URL=http://localhost:8001
     ports:
       - "3000:80"
     networks:
       - forgepilot-network
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:80/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
 networks:
   forgepilot-network:

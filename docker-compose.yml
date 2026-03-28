@@ -17,6 +17,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 30s
 
   backend:
     build:
@@ -28,25 +29,33 @@ services:
       mongodb:
         condition: service_healthy
     environment:
+      # MongoDB (im Docker-Netzwerk heißt der Service 'mongodb')
       - MONGO_URL=mongodb://mongodb:27017
       - DB_NAME=forgepilot
       - CORS_ORIGINS=*
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      # API Keys
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+      # Ollama Konfiguration
       - OLLAMA_URL=${OLLAMA_URL:-http://host.docker.internal:11434}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3}
+      - LLM_PROVIDER=${LLM_PROVIDER:-auto}
     volumes:
       - workspaces:/app/workspaces
     ports:
       - "8001:8001"
     networks:
       - forgepilot-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-      args:
-        - REACT_APP_BACKEND_URL=http://localhost:8001
     container_name: forgepilot-frontend
     restart: unless-stopped
     depends_on:

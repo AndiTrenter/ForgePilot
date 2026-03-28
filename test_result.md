@@ -101,3 +101,171 @@
 #====================================================================================================
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
+
+user_problem_statement: |
+  ForgePilot Verbesserungen für Unraid-Deployment:
+  1. Frontend-Backend-Kommunikation robust machen via Nginx Reverse Proxy
+  2. Ollama vollständig integrieren mit LLM_PROVIDER (openai/ollama/auto)
+  3. Settings-Dialog reparieren (keine Fake-Fehler)
+  4. Update-System mit Versionsprüfung und UI-Banner
+  5. docker-compose.unraid.yml finalisieren
+
+backend:
+  - task: "API Status Endpoint mit Version und LLM Info"
+    implemented: true
+    working: true
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "main"
+        comment: "GET /api/ returns version, llm_provider, active_provider, ollama_available"
+      - working: true
+        agent: "testing"
+        comment: "✅ TESTED: GET /api/ endpoint working perfectly. Returns all required fields: message='ForgePilot API', version='1.0.0', llm_provider='auto', active_provider='openai', ollama_available=false"
+
+  - task: "Settings Endpoint mit LLM Provider"
+    implemented: true
+    working: true
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "main"
+        comment: "GET/PUT /api/settings with ollama_model, llm_provider, settings_from_env"
+      - working: true
+        agent: "testing"
+        comment: "✅ TESTED: GET /api/settings returns all required fields including openai_api_key_set, github_token_set, ollama_url, ollama_model, llm_provider, use_ollama, settings_from_env, ollama_available, ollama_models. PUT /api/settings successfully updates llm_provider to auto/openai/ollama"
+
+  - task: "LLM Status Endpoint"
+    implemented: true
+    working: true
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "main"
+        comment: "GET /api/llm/status returns provider, active_provider, ollama info"
+      - working: true
+        agent: "testing"
+        comment: "✅ TESTED: GET /api/llm/status returns all required fields: provider='auto', active_provider='openai', ollama_available=false, ollama_url, ollama_model, ollama_models=[], openai_available=true, auto_fallback_active=true"
+
+  - task: "Health Check Endpoint"
+    implemented: true
+    working: true
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "main"
+        comment: "GET /api/health returns status, version, checks for mongodb, llm, ollama, openai"
+      - working: true
+        agent: "testing"
+        comment: "✅ TESTED: GET /api/health returns status='healthy', version='1.0.0', checks object with mongodb=true, llm=true, ollama=false, openai=true. All required fields present and working correctly"
+
+  - task: "Update System Endpoints"
+    implemented: true
+    working: true
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "main"
+        comment: "GET /api/update/status, POST /api/update/check, POST /api/update/install, POST /api/update/rollback"
+      - working: true
+        agent: "testing"
+        comment: "✅ TESTED: GET /api/update/status returns all required fields: installed_version='1.0.0', latest_version, update_available=false, checking=false, last_checked_at, release_notes, previous_version, last_update_at, last_rollback_at. POST /api/update/check successfully checks GitHub for updates and returns proper response structure"
+
+  - task: "Ollama Chat Integration"
+    implemented: true
+    working: true
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "main"
+        comment: "call_ollama function with auto-fallback to OpenAI"
+
+frontend:
+  - task: "Relative API URL via Nginx Proxy"
+    implemented: true
+    working: true
+    file: "frontend/src/components/api.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: true
+        agent: "main"
+        comment: "API uses /api relative path in production, REACT_APP_BACKEND_URL only for dev"
+
+  - task: "Settings Modal mit LLM Provider Auswahl"
+    implemented: true
+    working: true
+    file: "frontend/src/App.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: true
+        agent: "main"
+        comment: "Settings modal with API Keys, LLM, Updates, Shortcuts tabs"
+
+  - task: "Update Banner Komponente"
+    implemented: true
+    working: true
+    file: "frontend/src/App.js"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: true
+    status_history:
+      - working: true
+        agent: "main"
+        comment: "UpdateBanner component shows when update is available"
+
+  - task: "Nginx Reverse Proxy Config"
+    implemented: true
+    working: true
+    file: "frontend/nginx.conf"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "main"
+        comment: "nginx.conf proxies /api to forgepilot-backend:8001"
+
+metadata:
+  created_by: "main_agent"
+  version: "1.0"
+  test_sequence: 2
+  run_ui: false
+
+test_plan:
+  current_focus:
+    - "API Status Endpoint mit Version und LLM Info"
+    - "Settings Endpoint mit LLM Provider"
+    - "LLM Status Endpoint"
+    - "Health Check Endpoint"
+    - "Update System Endpoints"
+  stuck_tasks: []
+  test_all: false
+  test_priority: "high_first"
+
+agent_communication:
+  - agent: "main"
+    message: "Implemented all ForgePilot improvements: Nginx reverse proxy, Ollama integration with LLM_PROVIDER, improved settings dialog, update system. Ready for testing."
+  - agent: "testing"
+    message: "Completed comprehensive testing of all requested ForgePilot API endpoints. All 5 backend tasks tested successfully with 100% pass rate. All endpoints return correct response structure and data as specified in the review request."

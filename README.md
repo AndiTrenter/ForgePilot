@@ -10,62 +10,128 @@ Ein lokales AI-Entwicklungssystem für Unraid. Erstelle Software-Projekte per Ch
 - **6 Projekt-Templates** - React, Vue.js, Node.js, Python FastAPI, Landing Page, Dashboard
 - **GitHub Integration** - Import/Export von Repositories
 - **Spracheingabe** - Mikrofon-Button für Sprachbefehle
-- **Ollama Support** - Nutze lokale LLMs statt OpenAI
+- **Ollama Support** - Nutze lokale LLMs (llama3, mistral, codellama) statt OpenAI
+- **Auto-Fallback** - Automatischer Wechsel zwischen Ollama und OpenAI
+- **Update-System** - Automatische Update-Erkennung und Installation über die UI
 
 ## Installation auf Unraid
 
-### Option 1: Vorgebaute Docker Images (Empfohlen)
+### Schnellstart mit GHCR Images (Empfohlen)
 
-Nach dem Push zu GitHub werden die Docker Images automatisch gebaut.
+```bash
+# 1. Repository klonen
+git clone https://github.com/AndiTrenter/ForgePilot.git
+cd ForgePilot
 
-1. **Repository klonen:**
+# 2. .env erstellen
+cp .env.example .env
+nano .env  # Mindestens OPENAI_API_KEY eintragen
+
+# 3. Container starten
+docker-compose -f docker-compose.unraid.yml up -d
+
+# 4. Öffne http://YOUR_UNRAID_IP:3000
+```
+
+### Environment-Variablen
+
+Erstelle eine `.env` Datei im Projektverzeichnis:
+
+```bash
+# Erforderlich
+OPENAI_API_KEY=sk-proj-...
+
+# Optional - GitHub Integration
+GITHUB_TOKEN=github_pat_...
+
+# Optional - Ollama (lokale LLM)
+OLLAMA_URL=http://192.168.1.140:11434
+OLLAMA_MODEL=llama3
+
+# LLM Provider: auto (empfohlen), openai, ollama
+LLM_PROVIDER=auto
+```
+
+## LLM Provider Konfiguration
+
+ForgePilot unterstützt drei Modi für die KI:
+
+### Auto (Empfohlen)
+```bash
+LLM_PROVIDER=auto
+```
+- Nutzt Ollama wenn verfügbar
+- Fällt automatisch auf OpenAI zurück
+- Beste Kombination aus Kosten und Verfügbarkeit
+
+### OpenAI Only
+```bash
+LLM_PROVIDER=openai
+```
+- Nutzt nur OpenAI GPT-4o
+- Benötigt gültigen API Key
+- Beste Qualität, aber kostenpflichtig
+
+### Ollama Only
+```bash
+LLM_PROVIDER=ollama
+OLLAMA_URL=http://192.168.1.140:11434
+OLLAMA_MODEL=llama3
+```
+- Nutzt nur lokales Ollama
+- Kostenlos, aber benötigt lokale Hardware
+- Gut für einfachere Aufgaben
+
+## Ollama Setup
+
+1. **Ollama installieren:**
    ```bash
-   git clone https://github.com/YOUR_USERNAME/forgepilot.git
-   cd forgepilot
+   curl -fsSL https://ollama.com/install.sh | sh
    ```
 
-2. **Environment-Variablen konfigurieren:**
+2. **Ollama starten:**
    ```bash
-   cp .env.example .env
-   nano .env  # Füge deinen OpenAI API Key ein
+   ollama serve
    ```
 
-3. **docker-compose.unraid.yml anpassen:**
+3. **Modell laden:**
    ```bash
-   # Ersetze YOUR_GITHUB_USERNAME mit deinem GitHub Benutzernamen
-   sed -i 's/YOUR_GITHUB_USERNAME/dein-username/g' docker-compose.unraid.yml
+   ollama pull llama3
+   # oder für Code: ollama pull codellama
    ```
 
-4. **Docker Container starten:**
+4. **ForgePilot konfigurieren:**
+   - Einstellungen öffnen (Ctrl+,)
+   - Tab "LLM" wählen
+   - Ollama URL eintragen: `http://192.168.x.x:11434`
+   - "Test" klicken um Verbindung zu prüfen
+   - Provider auf "Ollama" oder "Auto" setzen
+
+## Update-System
+
+ForgePilot kann automatisch nach Updates suchen und diese installieren.
+
+### Update prüfen
+- Öffne Einstellungen (Ctrl+,)
+- Tab "Updates" wählen
+- "Prüfen" klicken
+
+### Update installieren
+1. Bei verfügbarem Update erscheint ein Banner
+2. Klicke "Jetzt updaten"
+3. Folge den angezeigten Schritten:
    ```bash
+   docker-compose -f docker-compose.unraid.yml pull
    docker-compose -f docker-compose.unraid.yml up -d
    ```
 
-### Option 2: Lokal bauen
-
+### Rollback
+Falls ein Update Probleme verursacht:
 ```bash
-git clone https://github.com/YOUR_USERNAME/forgepilot.git
-cd forgepilot
-cp .env.example .env
-# OPENAI_API_KEY eintragen
-docker-compose up -d --build
-```
-
-### Zugriff
-
-- **Frontend:** http://YOUR_UNRAID_IP:3000
-- **Backend API:** http://YOUR_UNRAID_IP:8001
-
-### GitHub Actions
-
-Bei jedem Push zu `main` werden automatisch Docker Images gebaut:
-- `ghcr.io/YOUR_USERNAME/forgepilot/forgepilot-backend:latest`
-- `ghcr.io/YOUR_USERNAME/forgepilot/forgepilot-frontend:latest`
-
-Für ein Release mit Version-Tag:
-```bash
-git tag v1.0.0
-git push origin v1.0.0
+# Zur vorherigen Version zurückkehren
+docker pull ghcr.io/anditrenter/forgepilot/forgepilot-backend:v1.0.0
+docker pull ghcr.io/anditrenter/forgepilot/forgepilot-frontend:v1.0.0
+docker-compose -f docker-compose.unraid.yml up -d
 ```
 
 ## Tastaturkürzel
@@ -92,62 +158,44 @@ git push origin v1.0.0
 | 🚀 Landing Page | Marketing-Landingpage mit Tailwind |
 | 📊 Dashboard | Admin-Dashboard mit Charts |
 
-## Konfiguration
-
-### OpenAI
-
-Für Cloud-basierte KI (empfohlen für beste Qualität):
-
-1. Erstelle einen API Key: https://platform.openai.com/api-keys
-2. Füge ihn in `backend/.env` ein:
-   ```
-   OPENAI_API_KEY=sk-your-key-here
-   ```
-
-### Ollama (Lokal)
-
-Für lokale LLMs ohne Cloud:
-
-1. Installiere Ollama: https://ollama.com
-2. Starte Ollama: `ollama serve`
-3. Lade ein Modell: `ollama pull llama3`
-4. Aktiviere Ollama in ForgePilot Einstellungen
-
-### GitHub Integration
-
-Für Repository Import/Export:
-
-1. Erstelle einen Personal Access Token: https://github.com/settings/tokens
-2. Füge ihn in `backend/.env` ein:
-   ```
-   GITHUB_TOKEN=github_pat_your-token-here
-   ```
-
-## Architektur
-
-```
-ForgePilot
-├── frontend/          # React 19 + Tailwind CSS
-│   ├── src/
-│   │   ├── App.js
-│   │   └── components/
-│   └── Dockerfile
-├── backend/           # FastAPI + MongoDB
-│   ├── server.py
-│   └── Dockerfile
-├── docker-compose.yml # Für Unraid Deployment
-└── workspaces/        # Generierte Projekte
-```
-
 ## API Endpoints
 
 | Methode | Endpoint | Beschreibung |
 |---------|----------|--------------|
+| GET | /api/ | API Status & Version |
+| GET | /api/health | Health Check |
+| GET | /api/version | App Version |
+| GET | /api/llm/status | LLM Status (Provider, Ollama Verfügbarkeit) |
+| GET | /api/settings | Aktuelle Einstellungen |
+| PUT | /api/settings | Einstellungen speichern |
+| GET | /api/update/status | Update Status |
+| POST | /api/update/check | Nach Updates suchen |
 | GET | /api/projects | Liste aller Projekte |
 | POST | /api/projects | Neues Projekt erstellen |
 | POST | /api/projects/{id}/chat | Chat mit Agent (SSE) |
 | GET | /api/projects/{id}/preview/{path} | Live-Preview |
 | POST | /api/github/import | GitHub Repo importieren |
+
+## Architektur
+
+```
+ForgePilot
+├── frontend/               # React 19 + Tailwind CSS
+│   ├── src/
+│   │   ├── App.js          # Hauptkomponente
+│   │   └── components/
+│   │       ├── api.js      # API Client (nutzt /api relativ)
+│   │       └── ...
+│   ├── nginx.conf          # Reverse Proxy für /api
+│   └── Dockerfile
+├── backend/                # FastAPI + MongoDB
+│   ├── server.py           # API Server
+│   └── Dockerfile
+├── docker-compose.yml      # Lokales Bauen
+├── docker-compose.unraid.yml  # GHCR Images für Unraid
+├── VERSION                 # App-Version
+└── workspaces/             # Generierte Projekte
+```
 
 ## Entwicklung
 
@@ -157,11 +205,28 @@ cd backend
 pip install -r requirements.txt
 uvicorn server:app --reload --port 8001
 
-# Frontend starten
+# Frontend starten (separates Terminal)
 cd frontend
 yarn install
 yarn start
 ```
+
+## Troubleshooting
+
+### Frontend zeigt "Backend nicht erreichbar"
+1. Prüfe ob alle Container laufen: `docker ps`
+2. Prüfe Backend-Logs: `docker logs forgepilot-backend`
+3. Prüfe Netzwerk: `docker network inspect forgepilot_forgepilot-network`
+
+### Ollama wird nicht erkannt
+1. Prüfe Ollama-URL in Einstellungen
+2. Teste von Backend aus: `curl http://OLLAMA_IP:11434/api/tags`
+3. Stelle sicher dass Ollama auf 0.0.0.0 hört, nicht nur localhost
+
+### Settings speichern schlägt fehl
+- Keys aus .env werden als read-only behandelt
+- Nur Keys die NICHT in .env stehen können über UI geändert werden
+- Bei .env Änderungen: Container neu starten
 
 ## Lizenz
 

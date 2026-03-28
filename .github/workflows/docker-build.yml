@@ -40,6 +40,13 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Get version from VERSION file
+        id: version
+        run: |
+          VERSION=$(cat VERSION 2>/dev/null || echo "1.0.0")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Version: $VERSION"
+
       - name: Extract metadata for Backend
         id: meta-backend
         uses: docker/metadata-action@v5
@@ -51,6 +58,8 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=${{ steps.version.outputs.version }},enable={{is_default_branch}}
+            type=sha,prefix=
 
       - name: Build and push Backend image
         uses: docker/build-push-action@v5
@@ -63,6 +72,8 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           platforms: linux/amd64,linux/arm64
+          build-args: |
+            APP_VERSION=${{ steps.version.outputs.version }}
 
   build-frontend:
     runs-on: ubuntu-latest
@@ -85,6 +96,12 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Get version from VERSION file
+        id: version
+        run: |
+          VERSION=$(cat VERSION 2>/dev/null || echo "1.0.0")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
       - name: Extract metadata for Frontend
         id: meta-frontend
         uses: docker/metadata-action@v5
@@ -96,6 +113,8 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=${{ steps.version.outputs.version }},enable={{is_default_branch}}
+            type=sha,prefix=
 
       - name: Build and push Frontend image
         uses: docker/build-push-action@v5
@@ -108,8 +127,8 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           platforms: linux/amd64,linux/arm64
-          build-args: |
-            REACT_APP_BACKEND_URL=http://localhost:8001
+          # WICHTIG: Kein REACT_APP_BACKEND_URL Build-Arg mehr nötig!
+          # Frontend nutzt jetzt relativen /api Pfad via Nginx Proxy
 
   create-release:
     needs: [build-backend, build-frontend]
@@ -122,25 +141,49 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Get version from VERSION file
+        id: version
+        run: |
+          VERSION=$(cat VERSION 2>/dev/null || echo "1.0.0")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           generate_release_notes: true
           body: |
-            ## ForgePilot Release
+            ## ForgePilot Release ${{ github.ref_name }}
             
             ### Docker Images
             ```bash
             # Backend
             docker pull ghcr.io/${{ github.repository }}/forgepilot-backend:${{ github.ref_name }}
             
-            # Frontend
+            # Frontend  
             docker pull ghcr.io/${{ github.repository }}/forgepilot-frontend:${{ github.ref_name }}
             ```
             
             ### Installation auf Unraid
-            1. Lade `docker-compose.yml` herunter
-            2. Erstelle `.env` mit deinem OpenAI API Key
-            3. `docker-compose up -d`
+            1. Erstelle eine `.env` Datei mit deinem OpenAI API Key:
+               ```
+               OPENAI_API_KEY=sk-proj-...
+               GITHUB_TOKEN=github_pat_... (optional)
+               OLLAMA_URL=http://192.168.x.x:11434 (optional)
+               LLM_PROVIDER=auto
+               ```
+            2. Starte mit: `docker-compose -f docker-compose.unraid.yml up -d`
+            3. Öffne http://localhost:3000
+            
+            ### Update von vorheriger Version
+            ```bash
+            docker-compose -f docker-compose.unraid.yml pull
+            docker-compose -f docker-compose.unraid.yml up -d
+            ```
+            
+            ### Neue Features
+            - Nginx Reverse Proxy für robuste Frontend-Backend-Kommunikation
+            - Vollständige Ollama Integration mit Auto-Fallback
+            - Verbesserter Settings-Dialog mit LLM Provider Auswahl
+            - Update-System mit Versionsprüfung
             
             Siehe README.md für vollständige Anleitung.
