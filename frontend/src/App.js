@@ -584,12 +584,15 @@ const UpdateBanner = ({ updateStatus, onCheckUpdate, onInstallUpdate, onDismiss 
 const SettingsModal = ({ isOpen, onClose, onRefreshLLMStatus }) => {
   const [activeTab, setActiveTab] = useState('api');
   const [settings, setSettings] = useState({ 
-    openai_api_key_set: false, 
+    openai_api_key_set: false,
+    openai_api_key_preview: '',
+    openai_from_env: false,
     github_token_set: false,
+    github_token_preview: '',
+    github_from_env: false,
     ollama_url: 'http://localhost:11434',
     ollama_model: 'llama3',
     llm_provider: 'auto',
-    settings_from_env: false,
     ollama_available: false,
     ollama_models: []
   });
@@ -599,6 +602,7 @@ const SettingsModal = ({ isOpen, onClose, onRefreshLLMStatus }) => {
   const [ollamaUrl, setOllamaUrl] = useState('');
   const [ollamaModel, setOllamaModel] = useState('');
   const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
   const [message, setMessage] = useState(null);
   const [updateStatus, setUpdateStatus] = useState(null);
   const [checkingUpdate, setCheckingUpdate] = useState(false);
@@ -618,7 +622,8 @@ const SettingsModal = ({ isOpen, onClose, onRefreshLLMStatus }) => {
       setOllamaUrl(res.data.ollama_url || 'http://localhost:11434');
       setOllamaModel(res.data.ollama_model || 'llama3');
     } catch (e) {
-      console.error('Failed to load settings');
+      console.error('Failed to load settings:', e);
+      setMessage({ type: 'error', text: 'Einstellungen konnten nicht geladen werden' });
     }
   };
 
@@ -626,8 +631,14 @@ const SettingsModal = ({ isOpen, onClose, onRefreshLLMStatus }) => {
     try {
       const res = await axios.get(`${API}/llm/status`);
       setLLMStatus(res.data);
+      // Update settings with fresh Ollama models
+      setSettings(prev => ({
+        ...prev,
+        ollama_available: res.data.ollama_available,
+        ollama_models: res.data.ollama_models || []
+      }));
     } catch (e) {
-      console.error('Failed to load LLM status');
+      console.error('Failed to load LLM status:', e);
     }
   };
 
@@ -637,7 +648,6 @@ const SettingsModal = ({ isOpen, onClose, onRefreshLLMStatus }) => {
       setUpdateStatus(res.data);
     } catch (e) {
       console.error('Failed to load update status:', e.message);
-      // Setze Fallback-Werte damit die UI nicht leer bleibt
       setUpdateStatus(prev => ({
         ...prev,
         installed_version: prev?.installed_version || 'Unbekannt',
@@ -660,7 +670,6 @@ const SettingsModal = ({ isOpen, onClose, onRefreshLLMStatus }) => {
       }
     } catch (e) {
       console.error('Update check failed:', e.message);
-      // Versuche /api/version als Fallback
       try {
         const versionRes = await axios.get(`${API}/version`);
         setUpdateStatus(prev => ({
@@ -682,12 +691,17 @@ const SettingsModal = ({ isOpen, onClose, onRefreshLLMStatus }) => {
     setSaving(true);
     setMessage(null);
     try {
-      await axios.put(`${API}/settings`, { openai_api_key: openaiKey });
-      setSettings(prev => ({ ...prev, openai_api_key_set: true }));
+      const res = await axios.put(`${API}/settings`, { openai_api_key: openaiKey });
+      setSettings(prev => ({ 
+        ...prev, 
+        openai_api_key_set: true,
+        openai_api_key_preview: res.data.openai_api_key_preview 
+      }));
       setOpenaiKey('');
       setMessage({ type: 'success', text: 'OpenAI API Key gespeichert!' });
+      await loadSettings(); // Reload to get preview
     } catch (e) {
-      setMessage({ type: 'error', text: 'Fehler beim Speichern' });
+      setMessage({ type: 'error', text: 'Fehler beim Speichern: ' + (e.response?.data?.detail || e.message) });
     }
     setSaving(false);
   };
@@ -697,10 +711,42 @@ const SettingsModal = ({ isOpen, onClose, onRefreshLLMStatus }) => {
     setSaving(true);
     setMessage(null);
     try {
-      await axios.put(`${API}/settings`, { github_token: githubToken });
-      setSettings(prev => ({ ...prev, github_token_set: true }));
+      const res = await axios.put(`${API}/settings`, { github_token: githubToken });
+      setSettings(prev => ({ 
+        ...prev, 
+        github_token_set: true,
+        github_token_preview: res.data.github_token_preview 
+      }));
       setGithubToken('');
       setMessage({ type: 'success', text: 'GitHub Token gespeichert!' });
+      await loadSettings(); // Reload to get preview
+    } catch (e) {
+      setMessage({ type: 'error', text: 'Fehler beim Speichern: ' + (e.response?.data?.detail || e.message) });
+    }
+    setSaving(false);
+  };
+
+  const saveOllamaUrl = async () => {
+    setSaving(true);
+    setMessage(null);
+    try {
+      const res = await axios.put(`${API}/settings`, { 
+        ollama_url: ollamaUrl,
+        ollama_model: ollamaModel
+      });
+      setSettings(prev => ({ 
+        ...prev, 
+        ollama_url: ollamaUrl,
+        ollama_model: ollamaModel,
+        ollama_available: res.data.ollama_available,
+        ollama_models: res.data.ollama_models || []
+      }));
+      if (res.data.ollama_available) {
+        setMessage({ type: 'success', text: `Ollama gespeichert - ${res.data.ollama_models?.length || 0} Modelle gefunden` });
+      } else {
+        setMessage({ type: 'warning', text: 'Ollama URL gespeichert, aber nicht erreichbar' });
+      }
+      await loadLLMStatus();
     } catch (e) {
       setMessage({ type: 'error', text: 'Fehler beim Speichern' });
     }
@@ -711,7 +757,7 @@ const SettingsModal = ({ isOpen, onClose, onRefreshLLMStatus }) => {
     setSaving(true);
     setMessage(null);
     try {
-      await axios.put(`${API}/settings`, { 
+      const res = await axios.put(`${API}/settings`, { 
         llm_provider: provider,
         ollama_url: ollamaUrl,
         ollama_model: ollamaModel
@@ -726,6 +772,33 @@ const SettingsModal = ({ isOpen, onClose, onRefreshLLMStatus }) => {
     setSaving(false);
   };
 
+  const testOllamaConnection = async () => {
+    setTesting(true);
+    setMessage(null);
+    try {
+      const res = await axios.post(`${API}/llm/test-ollama?url=${encodeURIComponent(ollamaUrl)}`);
+      if (res.data.success) {
+        setSettings(prev => ({
+          ...prev,
+          ollama_available: true,
+          ollama_models: res.data.models || []
+        }));
+        setMessage({ type: 'success', text: res.data.message });
+        // If models found, select first one if none selected
+        if (res.data.models?.length > 0 && !ollamaModel) {
+          setOllamaModel(res.data.models[0]);
+        }
+      } else {
+        setSettings(prev => ({ ...prev, ollama_available: false, ollama_models: [] }));
+        setMessage({ type: 'error', text: res.data.message });
+      }
+    } catch (e) {
+      setSettings(prev => ({ ...prev, ollama_available: false, ollama_models: [] }));
+      setMessage({ type: 'error', text: 'Verbindungstest fehlgeschlagen: ' + e.message });
+    }
+    setTesting(false);
+  };
+
   const refreshOllamaStatus = async () => {
     setSaving(true);
     try {
@@ -734,10 +807,10 @@ const SettingsModal = ({ isOpen, onClose, onRefreshLLMStatus }) => {
       setSettings(prev => ({ 
         ...prev, 
         ollama_available: res.data.ollama_available,
-        ollama_models: res.data.ollama_models
+        ollama_models: res.data.ollama_models || []
       }));
       if (res.data.ollama_available) {
-        setMessage({ type: 'success', text: `Ollama verbunden: ${res.data.ollama_models.length} Modelle gefunden` });
+        setMessage({ type: 'success', text: `Ollama verbunden: ${res.data.ollama_models?.length || 0} Modelle gefunden` });
       } else {
         setMessage({ type: 'error', text: 'Ollama nicht erreichbar' });
       }
@@ -804,16 +877,18 @@ const SettingsModal = ({ isOpen, onClose, onRefreshLLMStatus }) => {
         </div>
 
         {/* Env Notice */}
-        {settings.settings_from_env && activeTab === 'api' && (
+        {(settings.openai_from_env || settings.github_from_env) && activeTab === 'api' && (
           <div className="mx-4 mt-4 p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg text-sm text-blue-300">
-            <strong>Hinweis:</strong> Keys werden aus .env geladen und können hier nicht geändert werden.
+            <strong>Hinweis:</strong> Einige Keys werden aus .env geladen (siehe Labels).
           </div>
         )}
 
         {/* Message */}
         {message && (
           <div className={`mx-4 mt-4 p-3 rounded-lg text-sm ${
-            message.type === 'success' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' : 'bg-rose-500/10 text-rose-400 border border-rose-500/30'
+            message.type === 'success' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' : 
+            message.type === 'warning' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30' :
+            'bg-rose-500/10 text-rose-400 border border-rose-500/30'
           }`}>
             {message.text}
           </div>
@@ -829,35 +904,43 @@ const SettingsModal = ({ isOpen, onClose, onRefreshLLMStatus }) => {
                   <h3 className="text-sm font-semibold text-zinc-300">OpenAI API Key</h3>
                   {settings.openai_api_key_set && (
                     <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 text-xs rounded-full flex items-center gap-1">
-                      <Check size={10} /> {settings.settings_from_env ? 'Aus .env' : 'Gespeichert'}
+                      <Check size={10} /> {settings.openai_from_env ? 'Aus .env' : 'In DB gespeichert'}
                     </span>
                   )}
                 </div>
+                {/* Show current key preview */}
+                {settings.openai_api_key_set && settings.openai_api_key_preview && (
+                  <div className="mb-2 p-2 bg-zinc-800 rounded border border-zinc-700">
+                    <span className="text-xs text-zinc-500">Aktueller Key: </span>
+                    <span className="text-sm font-mono text-zinc-300">{settings.openai_api_key_preview}</span>
+                  </div>
+                )}
                 <p className="text-xs text-zinc-500 mb-3">
                   Erforderlich für KI-Funktionen. Erstelle deinen Key unter{' '}
                   <a href="https://platform.openai.com/api-keys" target="_blank" rel="noreferrer" className="text-blue-400 hover:underline">
                     platform.openai.com/api-keys
                   </a>
                 </p>
-                {!settings.settings_from_env && (
-                  <div className="flex gap-2">
-                    <input
-                      type="password"
-                      value={openaiKey}
-                      onChange={(e) => setOpenaiKey(e.target.value)}
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={openaiKey}
+                    onChange={(e) => setOpenaiKey(e.target.value)}
+                    placeholder={settings.openai_api_key_set ? 'Neuen Key eingeben zum Ersetzen...' : 'sk-proj-...'}
+                    className="flex-1 bg-zinc-800 border border-zinc-700 rounded-md px-3 py-2 text-sm focus:outline-none focus:border-zinc-500 font-mono"
+                  />
                       placeholder={settings.openai_api_key_set ? '••••••••••••••••' : 'sk-...'}
                       className="flex-1 bg-zinc-800 border border-zinc-700 rounded-md px-3 py-2 text-sm focus:outline-none focus:border-zinc-500"
                     />
-                    <button
-                      onClick={saveOpenAIKey}
-                      disabled={!openaiKey.trim() || saving}
-                      className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-700 disabled:text-zinc-500 text-white rounded-md text-sm font-medium transition-colors"
-                    >
-                      {saving ? <Loader2 size={14} className="animate-spin" /> : 'Speichern'}
-                    </button>
-                  </div>
-                )}
-                {settings.openai_api_key_set && !settings.settings_from_env && (
+                  <button
+                    onClick={saveOpenAIKey}
+                    disabled={!openaiKey.trim() || saving}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-700 disabled:text-zinc-500 text-white rounded-md text-sm font-medium transition-colors"
+                  >
+                    {saving ? <Loader2 size={14} className="animate-spin" /> : 'Speichern'}
+                  </button>
+                </div>
+                {settings.openai_api_key_set && !settings.openai_from_env && (
                   <button onClick={deleteOpenAIKey} className="mt-2 text-xs text-rose-400 hover:text-rose-300">
                     Key löschen
                   </button>
@@ -870,35 +953,40 @@ const SettingsModal = ({ isOpen, onClose, onRefreshLLMStatus }) => {
                   <h3 className="text-sm font-semibold text-zinc-300">GitHub Token</h3>
                   {settings.github_token_set && (
                     <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 text-xs rounded-full flex items-center gap-1">
-                      <Check size={10} /> {settings.settings_from_env ? 'Aus .env' : 'Gespeichert'}
+                      <Check size={10} /> {settings.github_from_env ? 'Aus .env' : 'In DB gespeichert'}
                     </span>
                   )}
                 </div>
+                {/* Show current token preview */}
+                {settings.github_token_set && settings.github_token_preview && (
+                  <div className="mb-2 p-2 bg-zinc-800 rounded border border-zinc-700">
+                    <span className="text-xs text-zinc-500">Aktueller Token: </span>
+                    <span className="text-sm font-mono text-zinc-300">{settings.github_token_preview}</span>
+                  </div>
+                )}
                 <p className="text-xs text-zinc-500 mb-3">
                   Optional für GitHub Import/Push. Erstelle unter{' '}
                   <a href="https://github.com/settings/tokens" target="_blank" rel="noreferrer" className="text-blue-400 hover:underline">
                     github.com/settings/tokens
                   </a>
                 </p>
-                {!settings.settings_from_env && (
-                  <div className="flex gap-2">
-                    <input
-                      type="password"
-                      value={githubToken}
-                      onChange={(e) => setGithubToken(e.target.value)}
-                      placeholder={settings.github_token_set ? '••••••••••••••••' : 'github_pat_...'}
-                      className="flex-1 bg-zinc-800 border border-zinc-700 rounded-md px-3 py-2 text-sm focus:outline-none focus:border-zinc-500"
-                    />
-                    <button
-                      onClick={saveGitHubToken}
-                      disabled={!githubToken.trim() || saving}
-                      className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-700 disabled:text-zinc-500 text-white rounded-md text-sm font-medium transition-colors"
-                    >
-                      {saving ? <Loader2 size={14} className="animate-spin" /> : 'Speichern'}
-                    </button>
-                  </div>
-                )}
-                {settings.github_token_set && !settings.settings_from_env && (
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={githubToken}
+                    onChange={(e) => setGithubToken(e.target.value)}
+                    placeholder={settings.github_token_set ? 'Neuen Token eingeben zum Ersetzen...' : 'github_pat_...'}
+                    className="flex-1 bg-zinc-800 border border-zinc-700 rounded-md px-3 py-2 text-sm focus:outline-none focus:border-zinc-500 font-mono"
+                  />
+                  <button
+                    onClick={saveGitHubToken}
+                    disabled={!githubToken.trim() || saving}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-700 disabled:text-zinc-500 text-white rounded-md text-sm font-medium transition-colors"
+                  >
+                    {saving ? <Loader2 size={14} className="animate-spin" /> : 'Speichern'}
+                  </button>
+                </div>
+                {settings.github_token_set && !settings.github_from_env && (
                   <button onClick={deleteGitHubToken} className="mt-2 text-xs text-rose-400 hover:text-rose-300">
                     Token löschen
                   </button>
@@ -1003,21 +1091,33 @@ const SettingsModal = ({ isOpen, onClose, onRefreshLLMStatus }) => {
                         type="text"
                         value={ollamaUrl}
                         onChange={(e) => setOllamaUrl(e.target.value)}
-                        placeholder="http://localhost:11434"
-                        className="flex-1 bg-zinc-700 border border-zinc-600 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-zinc-500"
+                        placeholder="http://192.168.1.140:11434"
+                        className="flex-1 bg-zinc-700 border border-zinc-600 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-zinc-500 font-mono"
                       />
                       <button
-                        onClick={refreshOllamaStatus}
-                        disabled={saving}
-                        className="px-3 py-1.5 bg-zinc-600 hover:bg-zinc-500 text-white rounded text-sm transition-colors flex items-center gap-1"
+                        onClick={testOllamaConnection}
+                        disabled={testing}
+                        className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded text-sm transition-colors flex items-center gap-1"
                       >
-                        {saving ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+                        {testing ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
                         Test
                       </button>
+                      <button
+                        onClick={saveOllamaUrl}
+                        disabled={saving}
+                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-sm transition-colors"
+                      >
+                        {saving ? <Loader2 size={12} className="animate-spin" /> : 'Speichern'}
+                      </button>
                     </div>
+                    <p className="text-xs text-zinc-500 mt-1">
+                      Auf Unraid: Die IP deines Servers, z.B. http://192.168.1.140:11434
+                    </p>
                   </div>
                   <div>
-                    <label className="text-xs text-zinc-400 block mb-1">Modell</label>
+                    <label className="text-xs text-zinc-400 block mb-1">
+                      Modell {settings.ollama_models?.length > 0 && <span className="text-emerald-400">({settings.ollama_models.length} verfügbar)</span>}
+                    </label>
                     <select
                       value={ollamaModel}
                       onChange={(e) => setOllamaModel(e.target.value)}
@@ -1027,13 +1127,23 @@ const SettingsModal = ({ isOpen, onClose, onRefreshLLMStatus }) => {
                         settings.ollama_models.map(m => <option key={m} value={m}>{m}</option>)
                       ) : (
                         <>
+                          <option value={ollamaModel}>{ollamaModel} (manuell)</option>
                           <option value="llama3">llama3</option>
                           <option value="llama3.2">llama3.2</option>
                           <option value="mistral">mistral</option>
                           <option value="codellama">codellama</option>
+                          <option value="deepseek-coder">deepseek-coder</option>
                         </>
                       )}
                     </select>
+                  </div>
+                  {/* Connection Status */}
+                  <div className="flex items-center gap-2 text-xs">
+                    <div className={`w-2 h-2 rounded-full ${settings.ollama_available ? 'bg-emerald-400' : 'bg-rose-400'}`} />
+                    <span className={settings.ollama_available ? 'text-emerald-400' : 'text-rose-400'}>
+                      {settings.ollama_available ? 'Verbunden' : 'Nicht verbunden'}
+                    </span>
+                    <span className="text-zinc-500">• {ollamaUrl}</span>
                   </div>
                 </div>
               </div>

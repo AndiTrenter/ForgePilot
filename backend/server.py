@@ -25,11 +25,15 @@ APP_ROOT = ROOT_DIR.parent
 load_dotenv(ROOT_DIR / '.env')
 
 # App Version
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.1.0"
 try:
-    version_file = APP_ROOT / "VERSION"
+    version_file = ROOT_DIR / "VERSION"
     if version_file.exists():
         APP_VERSION = version_file.read_text().strip()
+    else:
+        version_file = APP_ROOT / "VERSION"
+        if version_file.exists():
+            APP_VERSION = version_file.read_text().strip()
 except:
     pass
 
@@ -42,21 +46,27 @@ db = client[os.environ.get('DB_NAME', 'forgepilot')]
 settings_collection = db.settings
 update_collection = db.updates
 
-# Global settings (loaded from DB or env)
+# Default Ollama URL - für Docker-Setups die Host-IP verwenden
+DEFAULT_OLLAMA_URL = os.environ.get('OLLAMA_URL', 'http://host.docker.internal:11434')
+
+# Global settings class
 class AppSettings:
-    openai_api_key: str = os.environ.get('OPENAI_API_KEY', '')
-    github_token: str = os.environ.get('GITHUB_TOKEN', '')
-    ollama_url: str = os.environ.get('OLLAMA_URL', 'http://localhost:11434')
-    ollama_model: str = os.environ.get('OLLAMA_MODEL', 'llama3')
-    llm_provider: str = os.environ.get('LLM_PROVIDER', 'auto')  # openai, ollama, auto
-    use_ollama: bool = os.environ.get('USE_OLLAMA', 'false').lower() == 'true'
-    # Track if settings come from env (read-only) or DB (editable)
-    settings_from_env: bool = bool(os.environ.get('OPENAI_API_KEY', ''))
+    def __init__(self):
+        # Initialisiere mit ENV-Werten als Defaults
+        self.openai_api_key: str = os.environ.get('OPENAI_API_KEY', '')
+        self.github_token: str = os.environ.get('GITHUB_TOKEN', '')
+        self.ollama_url: str = os.environ.get('OLLAMA_URL', DEFAULT_OLLAMA_URL)
+        self.ollama_model: str = os.environ.get('OLLAMA_MODEL', 'llama3')
+        self.llm_provider: str = os.environ.get('LLM_PROVIDER', 'auto')
+        self.use_ollama: bool = os.environ.get('USE_OLLAMA', 'false').lower() == 'true'
+        # Track source of settings
+        self.openai_from_env: bool = bool(os.environ.get('OPENAI_API_KEY', ''))
+        self.github_from_env: bool = bool(os.environ.get('GITHUB_TOKEN', ''))
 
 app_settings = AppSettings()
 
 # OpenAI client (will be updated when settings change)
-openai_client = AsyncOpenAI(api_key=app_settings.openai_api_key) if app_settings.openai_api_key else None
+openai_client: Optional[AsyncOpenAI] = None
 
 # Ollama availability cache
 ollama_available = False
@@ -69,56 +79,91 @@ api_router = APIRouter(prefix="/api")
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+def mask_key(key: str) -> str:
+    """Maskiere API-Key für sichere Anzeige"""
+    if not key or len(key) < 10:
+        return ""
+    return key[:6] + "..." + key[-4:]
+
 # Load settings from database on startup
 async def load_settings_from_db():
     global openai_client, app_settings
-    saved = await settings_collection.find_one({"_id": "app_settings"})
-    if saved:
-        # Only override if not set in env
-        if not os.environ.get('OPENAI_API_KEY') and saved.get('openai_api_key'):
-            app_settings.openai_api_key = saved['openai_api_key']
-            openai_client = AsyncOpenAI(api_key=app_settings.openai_api_key)
-        if not os.environ.get('GITHUB_TOKEN') and saved.get('github_token'):
-            app_settings.github_token = saved['github_token']
-        if saved.get('ollama_url'):
-            app_settings.ollama_url = saved['ollama_url']
-        if saved.get('ollama_model'):
-            app_settings.ollama_model = saved['ollama_model']
-        if saved.get('llm_provider'):
-            app_settings.llm_provider = saved['llm_provider']
-        if saved.get('use_ollama') is not None:
-            app_settings.use_ollama = saved['use_ollama']
     
-    logger.info(f"Settings loaded: OpenAI key set: {bool(app_settings.openai_api_key)}, GitHub token set: {bool(app_settings.github_token)}, LLM Provider: {app_settings.llm_provider}")
-
-# Check Ollama availability
-async def check_ollama_availability():
-    global ollama_available, ollama_models
     try:
-        async with httpx.AsyncClient(timeout=5) as http_client:
-            response = await http_client.get(f"{app_settings.ollama_url}/api/tags")
-            if response.status_code == 200:
-                models = response.json().get("models", [])
-                ollama_available = True
-                ollama_models = [m["name"] for m in models]
-                logger.info(f"Ollama available at {app_settings.ollama_url} with models: {ollama_models}")
-                return True
+        saved = await settings_collection.find_one({"_id": "app_settings"})
+        if saved:
+            logger.info(f"Loading saved settings from MongoDB...")
+            
+            # OpenAI Key: DB hat Vorrang, außer ENV ist gesetzt
+            if saved.get('openai_api_key'):
+                if not app_settings.openai_from_env:
+                    app_settings.openai_api_key = saved['openai_api_key']
+                    logger.info(f"Loaded OpenAI key from DB: {mask_key(app_settings.openai_api_key)}")
+            
+            # GitHub Token: DB hat Vorrang, außer ENV ist gesetzt
+            if saved.get('github_token'):
+                if not app_settings.github_from_env:
+                    app_settings.github_token = saved['github_token']
+                    logger.info(f"Loaded GitHub token from DB: {mask_key(app_settings.github_token)}")
+            
+            # Ollama settings - immer aus DB laden wenn vorhanden
+            if saved.get('ollama_url'):
+                app_settings.ollama_url = saved['ollama_url']
+            if saved.get('ollama_model'):
+                app_settings.ollama_model = saved['ollama_model']
+            if saved.get('llm_provider'):
+                app_settings.llm_provider = saved['llm_provider']
+        
+        # OpenAI Client initialisieren
+        if app_settings.openai_api_key:
+            openai_client = AsyncOpenAI(api_key=app_settings.openai_api_key)
+            logger.info("OpenAI client initialized")
+        else:
+            openai_client = None
+            logger.info("No OpenAI key configured")
+            
     except Exception as e:
-        logger.warning(f"Ollama not available: {e}")
+        logger.error(f"Error loading settings from DB: {e}")
+    
+    logger.info(f"Final settings: OpenAI={bool(app_settings.openai_api_key)}, GitHub={bool(app_settings.github_token)}, Ollama URL={app_settings.ollama_url}, Provider={app_settings.llm_provider}")
+
+# Check Ollama availability and load models
+async def check_ollama_availability(url: str = None) -> tuple[bool, list]:
+    """Check if Ollama is reachable and get available models"""
+    global ollama_available, ollama_models
+    
+    check_url = url or app_settings.ollama_url
+    logger.info(f"Checking Ollama at: {check_url}")
+    
+    try:
+        async with httpx.AsyncClient(timeout=10) as http_client:
+            response = await http_client.get(f"{check_url}/api/tags")
+            if response.status_code == 200:
+                data = response.json()
+                models = [m.get("name", m.get("model", "unknown")) for m in data.get("models", [])]
+                ollama_available = True
+                ollama_models = models
+                logger.info(f"Ollama available with {len(models)} models: {models}")
+                return True, models
+            else:
+                logger.warning(f"Ollama returned status {response.status_code}")
+    except httpx.ConnectError as e:
+        logger.warning(f"Ollama connection error: {e}")
+    except httpx.TimeoutException:
+        logger.warning(f"Ollama timeout at {check_url}")
+    except Exception as e:
+        logger.warning(f"Ollama check failed: {e}")
+    
     ollama_available = False
     ollama_models = []
-    return False
+    return False, []
 
 # Startup event
 @app.on_event("startup")
 async def startup_event():
+    logger.info(f"Starting ForgePilot API v{APP_VERSION}")
     await load_settings_from_db()
     await check_ollama_availability()
-
-# GitHub token (use from settings)
-@property
-def github_token():
-    return app_settings.github_token
 
 # Workspace base directory
 WORKSPACES_DIR = Path('/app/workspaces')
@@ -136,12 +181,15 @@ class SettingsUpdate(BaseModel):
 
 class SettingsResponse(BaseModel):
     openai_api_key_set: bool
+    openai_api_key_preview: str  # Maskierte Vorschau des Keys
+    openai_from_env: bool
     github_token_set: bool
+    github_token_preview: str  # Maskierte Vorschau
+    github_from_env: bool
     ollama_url: str
     ollama_model: str
     llm_provider: str
     use_ollama: bool
-    settings_from_env: bool
     ollama_available: bool
     ollama_models: List[str]
 
@@ -170,6 +218,7 @@ class ProjectCreate(BaseModel):
     name: str
     description: Optional[str] = ""
     project_type: str = "fullstack"
+    template_files: Optional[Dict] = None
 
 class Project(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -278,74 +327,96 @@ def get_active_llm_provider():
 
 @api_router.get("/settings", response_model=SettingsResponse)
 async def get_settings():
-    """Get current settings (without exposing full keys)"""
+    """Get current settings with masked key previews"""
+    # Refresh Ollama status
+    await check_ollama_availability()
+    
     return SettingsResponse(
         openai_api_key_set=bool(app_settings.openai_api_key),
+        openai_api_key_preview=mask_key(app_settings.openai_api_key),
+        openai_from_env=app_settings.openai_from_env,
         github_token_set=bool(app_settings.github_token),
+        github_token_preview=mask_key(app_settings.github_token),
+        github_from_env=app_settings.github_from_env,
         ollama_url=app_settings.ollama_url,
         ollama_model=app_settings.ollama_model,
         llm_provider=app_settings.llm_provider,
         use_ollama=app_settings.use_ollama,
-        settings_from_env=app_settings.settings_from_env,
         ollama_available=ollama_available,
         ollama_models=ollama_models
     )
 
 @api_router.put("/settings")
 async def update_settings(settings: SettingsUpdate):
-    """Update and save settings"""
+    """Update and save settings to MongoDB"""
     global openai_client, app_settings, ollama_available, ollama_models
     
     update_data = {}
+    changes = []
     
+    # OpenAI Key
     if settings.openai_api_key is not None:
         app_settings.openai_api_key = settings.openai_api_key
         update_data['openai_api_key'] = settings.openai_api_key
+        changes.append("OpenAI Key")
         if settings.openai_api_key:
             openai_client = AsyncOpenAI(api_key=settings.openai_api_key)
         else:
             openai_client = None
     
+    # GitHub Token
     if settings.github_token is not None:
         app_settings.github_token = settings.github_token
         update_data['github_token'] = settings.github_token
+        changes.append("GitHub Token")
     
+    # Ollama URL
     if settings.ollama_url is not None:
         app_settings.ollama_url = settings.ollama_url
         update_data['ollama_url'] = settings.ollama_url
+        changes.append("Ollama URL")
         # Re-check Ollama availability with new URL
-        await check_ollama_availability()
+        await check_ollama_availability(settings.ollama_url)
     
+    # Ollama Model
     if settings.ollama_model is not None:
         app_settings.ollama_model = settings.ollama_model
         update_data['ollama_model'] = settings.ollama_model
+        changes.append("Ollama Model")
     
+    # LLM Provider
     if settings.llm_provider is not None:
         if settings.llm_provider in ['openai', 'ollama', 'auto']:
             app_settings.llm_provider = settings.llm_provider
             update_data['llm_provider'] = settings.llm_provider
+            changes.append("LLM Provider")
     
     if settings.use_ollama is not None:
         app_settings.use_ollama = settings.use_ollama
         update_data['use_ollama'] = settings.use_ollama
     
-    # Save to database
+    # Save to MongoDB
     if update_data:
-        await settings_collection.update_one(
+        update_data['updated_at'] = datetime.now(timezone.utc).isoformat()
+        result = await settings_collection.update_one(
             {"_id": "app_settings"},
             {"$set": update_data},
             upsert=True
         )
-    
-    logger.info(f"Settings updated: {list(update_data.keys())}")
+        logger.info(f"Settings saved to MongoDB: {changes}, modified={result.modified_count}, upserted={result.upserted_id is not None}")
     
     return {
         "success": True,
-        "message": "Einstellungen gespeichert",
+        "message": f"Gespeichert: {', '.join(changes)}" if changes else "Keine Änderungen",
+        "changes": changes,
         "openai_api_key_set": bool(app_settings.openai_api_key),
+        "openai_api_key_preview": mask_key(app_settings.openai_api_key),
         "github_token_set": bool(app_settings.github_token),
+        "github_token_preview": mask_key(app_settings.github_token),
         "llm_provider": app_settings.llm_provider,
-        "active_provider": get_active_llm_provider()
+        "active_provider": get_active_llm_provider(),
+        "ollama_available": ollama_available,
+        "ollama_models": ollama_models
     }
 
 @api_router.delete("/settings/openai-key")
@@ -356,9 +427,10 @@ async def delete_openai_key():
     openai_client = None
     await settings_collection.update_one(
         {"_id": "app_settings"},
-        {"$unset": {"openai_api_key": ""}},
+        {"$set": {"openai_api_key": "", "updated_at": datetime.now(timezone.utc).isoformat()}},
         upsert=True
     )
+    logger.info("OpenAI key deleted")
     return {"success": True, "message": "OpenAI API Key gelöscht"}
 
 @api_router.delete("/settings/github-token")
@@ -368,9 +440,10 @@ async def delete_github_token():
     app_settings.github_token = ""
     await settings_collection.update_one(
         {"_id": "app_settings"},
-        {"$unset": {"github_token": ""}},
+        {"$set": {"github_token": "", "updated_at": datetime.now(timezone.utc).isoformat()}},
         upsert=True
     )
+    logger.info("GitHub token deleted")
     return {"success": True, "message": "GitHub Token gelöscht"}
 
 # ============== LLM STATUS ENDPOINT ==============
@@ -398,8 +471,63 @@ async def get_llm_status():
 @api_router.post("/llm/refresh")
 async def refresh_llm_status():
     """Refresh LLM status (check Ollama availability)"""
-    await check_ollama_availability()
-    return await get_llm_status()
+    available, models = await check_ollama_availability()
+    return {
+        "success": True,
+        "provider": app_settings.llm_provider,
+        "active_provider": get_active_llm_provider(),
+        "ollama_available": available,
+        "ollama_url": app_settings.ollama_url,
+        "ollama_model": app_settings.ollama_model,
+        "ollama_models": models,
+        "openai_available": bool(app_settings.openai_api_key),
+        "auto_fallback_active": app_settings.llm_provider == "auto" and not available and bool(app_settings.openai_api_key)
+    }
+
+@api_router.post("/llm/test-ollama")
+async def test_ollama_connection(url: str = Query(...)):
+    """Test connection to a specific Ollama URL"""
+    logger.info(f"Testing Ollama connection to: {url}")
+    try:
+        async with httpx.AsyncClient(timeout=10) as http_client:
+            response = await http_client.get(f"{url}/api/tags")
+            if response.status_code == 200:
+                data = response.json()
+                models = [m.get("name", m.get("model", "unknown")) for m in data.get("models", [])]
+                return {
+                    "success": True,
+                    "available": True,
+                    "models": models,
+                    "message": f"Verbunden! {len(models)} Modelle gefunden"
+                }
+            else:
+                return {
+                    "success": False,
+                    "available": False,
+                    "models": [],
+                    "message": f"Ollama antwortete mit Status {response.status_code}"
+                }
+    except httpx.ConnectError:
+        return {
+            "success": False,
+            "available": False,
+            "models": [],
+            "message": "Verbindung fehlgeschlagen - ist Ollama gestartet?"
+        }
+    except httpx.TimeoutException:
+        return {
+            "success": False,
+            "available": False,
+            "models": [],
+            "message": "Timeout - Ollama antwortet nicht"
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "available": False,
+            "models": [],
+            "message": f"Fehler: {str(e)}"
+        }
 
 # ============== UPDATE SYSTEM ==============
 
@@ -649,6 +777,7 @@ async def call_ollama(messages: list, model: str = None) -> str:
                 elif role == "assistant":
                     ollama_messages.append({"role": "assistant", "content": msg.get("content", "")})
             
+            logger.info(f"Calling Ollama at {app_settings.ollama_url} with model {model}")
             response = await http_client.post(
                 f"{app_settings.ollama_url}/api/chat",
                 json={
@@ -899,7 +1028,7 @@ WICHTIG:
             else:
                 # Use OpenAI
                 if not openai_client:
-                    yield f"data: {json.dumps({'error': 'Kein OpenAI API Key konfiguriert'})}\n\n"
+                    yield f"data: {json.dumps({'error': 'Kein OpenAI API Key konfiguriert. Bitte unter Einstellungen > API Keys hinzufügen.'})}\n\n"
                     should_continue = False
                     break
                     
@@ -978,6 +1107,14 @@ async def create_project(project: ProjectCreate):
     workspace_path = WORKSPACES_DIR / project_obj.id
     workspace_path.mkdir(exist_ok=True)
     project_obj.workspace_path = str(workspace_path)
+    
+    # Handle template files if provided
+    if project.template_files:
+        for file_path, content in project.template_files.items():
+            full_path = workspace_path / file_path
+            full_path.parent.mkdir(parents=True, exist_ok=True)
+            async with aiofiles.open(full_path, 'w') as f:
+                await f.write(content)
     
     await db.projects.insert_one(project_obj.model_dump())
     
@@ -1081,7 +1218,7 @@ async def get_agents(project_id: str):
 @api_router.get("/github/repos")
 async def get_github_repos():
     if not app_settings.github_token:
-        raise HTTPException(status_code=400, detail="GitHub Token nicht konfiguriert")
+        raise HTTPException(status_code=400, detail="GitHub Token nicht konfiguriert. Bitte unter Einstellungen > API Keys hinzufügen.")
     async with httpx.AsyncClient() as http_client:
         response = await http_client.get("https://api.github.com/user/repos", headers={"Authorization": f"token {app_settings.github_token}"}, params={"per_page": 100, "sort": "updated"})
         response.raise_for_status()
@@ -1228,8 +1365,8 @@ async def get_preview_info(project_id: str):
 @api_router.get("/ollama/status")
 async def get_ollama_status():
     """Check if Ollama is available (legacy endpoint)"""
-    await check_ollama_availability()
-    return {"available": ollama_available, "models": ollama_models}
+    available, models = await check_ollama_availability()
+    return {"available": available, "models": models, "url": app_settings.ollama_url}
 
 @api_router.post("/ollama/enable")
 async def enable_ollama(model: str = "llama3"):
@@ -1238,7 +1375,7 @@ async def enable_ollama(model: str = "llama3"):
     app_settings.ollama_model = model
     await settings_collection.update_one(
         {"_id": "app_settings"},
-        {"$set": {"llm_provider": "ollama", "ollama_model": model}},
+        {"$set": {"llm_provider": "ollama", "ollama_model": model, "updated_at": datetime.now(timezone.utc).isoformat()}},
         upsert=True
     )
     return {"enabled": True, "model": model}
