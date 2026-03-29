@@ -28,8 +28,14 @@ const getApiBase = () => {
   return '/api';
 };
 const API = getApiBase();
-// For preview URLs, we need the full backend URL
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || '';
+// For preview URLs - use relative path in production (nginx proxies to backend)
+// The preview URL from API is like "/api/projects/{id}/preview/index.html"
+// In production, this works directly. In dev, we need the full backend URL.
+const getPreviewBase = () => {
+  if (process.env.NODE_ENV === 'production') return '';
+  return process.env.REACT_APP_BACKEND_URL || '';
+};
+const PREVIEW_BASE = getPreviewBase();
 
 // ============== API Functions ==============
 const api = {
@@ -2181,7 +2187,7 @@ const Workspace = () => {
           </Tooltip>
           <Tooltip text="Öffnet die Live-Preview in einem neuen Tab" position="bottom">
             <button 
-              onClick={() => previewInfo?.preview_url && window.open(`${BACKEND_URL}${previewInfo.preview_url}`, '_blank')}
+              onClick={() => previewInfo?.preview_url && window.open(`${PREVIEW_BASE}${previewInfo.preview_url}`, '_blank')}
               disabled={!previewInfo?.has_preview}
               className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-800 disabled:text-zinc-500 text-white text-sm font-medium rounded-md transition-colors" 
               data-testid="external-preview-btn"
@@ -2364,7 +2370,7 @@ const Workspace = () => {
                     </div>
                     <Tooltip text="Preview in neuem Tab öffnen" position="bottom">
                       <button 
-                        onClick={() => previewInfo?.preview_url && window.open(`${BACKEND_URL}${previewInfo.preview_url}`, '_blank')}
+                        onClick={() => previewInfo?.preview_url && window.open(`${PREVIEW_BASE}${previewInfo.preview_url}`, '_blank')}
                         className="p-1 text-zinc-500 hover:text-white"
                       >
                         <ExternalLink size={12} />
@@ -2375,7 +2381,7 @@ const Workspace = () => {
                     {previewInfo?.has_preview ? (
                       <iframe
                         ref={iframeRef}
-                        src={`${BACKEND_URL}${previewInfo.preview_url}`}
+                        src={`${PREVIEW_BASE}${previewInfo.preview_url}`}
                         className="w-full h-full border-0"
                         title="Live Preview"
                       />
