@@ -617,6 +617,26 @@ const SettingsModal = ({ isOpen, onClose, onRefreshLLMStatus }) => {
   const [updateStatus, setUpdateStatus] = useState(null);
   const [checkingUpdate, setCheckingUpdate] = useState(false);
 
+  const [showUpdateInstructions, setShowUpdateInstructions] = useState(false);
+
+  const installUpdate = async () => {
+    try {
+      const res = await axios.post(`${API}/update/install`);
+      setShowUpdateInstructions(true);
+    } catch (e) {
+      setMessage({ type: 'error', text: 'Fehler: ' + (e.response?.data?.detail || e.message) });
+    }
+  };
+
+  const rollbackUpdate = async () => {
+    try {
+      const res = await axios.post(`${API}/update/rollback`);
+      setShowUpdateInstructions(true);
+    } catch (e) {
+      setMessage({ type: 'error', text: 'Fehler: ' + (e.response?.data?.detail || e.message) });
+    }
+  };
+
   useEffect(() => {
     if (isOpen) {
       loadSettings();
@@ -1211,10 +1231,13 @@ const SettingsModal = ({ isOpen, onClose, onRefreshLLMStatus }) => {
                     <span className="font-medium text-emerald-300">Update verfügbar!</span>
                   </div>
                   {updateStatus.release_notes && (
-                    <p className="text-sm text-zinc-400 mb-3">{updateStatus.release_notes.substring(0, 200)}...</p>
+                    <p className="text-sm text-zinc-400 mb-3">{updateStatus.release_notes.substring(0, 200)}</p>
                   )}
                   <div className="flex gap-2">
-                    <button className="flex-1 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded font-medium text-sm transition-colors">
+                    <button 
+                      onClick={installUpdate}
+                      className="flex-1 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded font-medium text-sm transition-colors"
+                    >
                       Update installieren
                     </button>
                   </div>
@@ -1222,9 +1245,68 @@ const SettingsModal = ({ isOpen, onClose, onRefreshLLMStatus }) => {
               )}
 
               {updateStatus?.previous_version && (
-                <button className="w-full px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded text-sm transition-colors">
+                <button 
+                  onClick={rollbackUpdate}
+                  className="w-full px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded text-sm transition-colors"
+                >
                   Rollback zu {updateStatus.previous_version}
                 </button>
+              )}
+
+              {/* Update Instructions Modal */}
+              {showUpdateInstructions && (
+                <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[60] p-4" onClick={() => setShowUpdateInstructions(false)}>
+                  <div className="bg-zinc-900 border border-zinc-700 rounded-lg w-full max-w-lg shadow-2xl" onClick={e => e.stopPropagation()}>
+                    <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
+                      <h3 className="text-lg font-medium text-white flex items-center gap-2">
+                        <RefreshCw size={20} className="text-emerald-400" />
+                        Update auf {updateStatus?.latest_version}
+                      </h3>
+                      <button onClick={() => setShowUpdateInstructions(false)} className="text-zinc-400 hover:text-white">
+                        <X size={20} />
+                      </button>
+                    </div>
+                    <div className="p-4 space-y-4">
+                      <p className="text-sm text-zinc-300">
+                        Führe folgende Befehle auf deinem Unraid Server aus:
+                      </p>
+                      <div className="bg-zinc-950 rounded-lg p-4 font-mono text-sm space-y-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-zinc-500">1.</span>
+                          <code className="text-emerald-400">cd /pfad/zu/forgepilot</code>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-zinc-500">2.</span>
+                          <code className="text-emerald-400">docker-compose -f docker-compose.unraid.yml pull</code>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-zinc-500">3.</span>
+                          <code className="text-emerald-400">docker-compose -f docker-compose.unraid.yml up -d</code>
+                        </div>
+                      </div>
+                      <div className="p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg text-sm text-blue-300">
+                        <strong>Tipp:</strong> Diese Befehle können auch über das Unraid Terminal oder SSH ausgeführt werden.
+                      </div>
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(
+                            `cd /pfad/zu/forgepilot && docker-compose -f docker-compose.unraid.yml pull && docker-compose -f docker-compose.unraid.yml up -d`
+                          );
+                          setMessage({ type: 'success', text: 'Befehle in Zwischenablage kopiert!' });
+                        }}
+                        className="w-full px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded flex items-center justify-center gap-2"
+                      >
+                        <Terminal size={16} />
+                        Befehle kopieren
+                      </button>
+                    </div>
+                    <div className="p-4 border-t border-zinc-800 flex justify-end">
+                      <button onClick={() => setShowUpdateInstructions(false)} className="px-4 py-2 bg-zinc-700 hover:bg-zinc-600 text-white rounded">
+                        Schließen
+                      </button>
+                    </div>
+                  </div>
+                </div>
               )}
 
               <div className="text-xs text-zinc-500 mt-4">
@@ -1667,6 +1749,10 @@ const Workspace = () => {
   const [agentActivities, setAgentActivities] = useState([]);
   // Right Panel (Preview) visibility
   const [showRightPanel, setShowRightPanel] = useState(true);
+  // Update Banner State
+  const [updateStatus, setUpdateStatus] = useState(null);
+  const [showUpdateBanner, setShowUpdateBanner] = useState(true);
+  const [showUpdateInstructions, setShowUpdateInstructions] = useState(false);
   // Voice Input State
   const [isListening, setIsListening] = useState(false);
   const [speechSupported, setSpeechSupported] = useState(false);
@@ -1678,6 +1764,19 @@ const Workspace = () => {
 
   // Initialize Speech Recognition
   useEffect(() => {
+    // Check for updates on mount
+    const checkUpdates = async () => {
+      try {
+        const res = await axios.post(`${API}/update/check`);
+        if (res.data.update_available) {
+          setUpdateStatus(res.data);
+        }
+      } catch (e) {
+        console.log('Update check skipped');
+      }
+    };
+    checkUpdates();
+    
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (SpeechRecognition) {
       setSpeechSupported(true);
@@ -2131,6 +2230,92 @@ const Workspace = () => {
 
   return (
     <div className="workspace-container bg-zinc-950">
+      {/* Update Banner */}
+      {updateStatus?.update_available && showUpdateBanner && (
+        <div className="fixed top-0 left-0 right-0 z-[100] bg-gradient-to-r from-blue-600 to-purple-600 text-white px-4 py-2 shadow-lg">
+          <div className="max-w-7xl mx-auto flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="p-1.5 bg-white/20 rounded-full">
+                <RefreshCw size={16} />
+              </div>
+              <div>
+                <span className="font-medium">Update verfügbar: Version {updateStatus.latest_version}</span>
+                <span className="text-white/70 text-sm ml-2">(aktuell: {updateStatus.installed_version})</span>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <button 
+                onClick={() => setShowUpdateInstructions(true)} 
+                className="px-3 py-1 text-sm bg-white text-blue-600 hover:bg-blue-50 rounded-md font-medium transition-colors"
+              >
+                Jetzt updaten
+              </button>
+              <button 
+                onClick={() => setShowUpdateBanner(false)} 
+                className="p-1 hover:bg-white/20 rounded-md transition-colors"
+              >
+                <X size={16} />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Update Instructions Modal */}
+      {showUpdateInstructions && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[110] p-4" onClick={() => setShowUpdateInstructions(false)}>
+          <div className="bg-zinc-900 border border-zinc-700 rounded-lg w-full max-w-lg shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
+              <h3 className="text-lg font-medium text-white flex items-center gap-2">
+                <RefreshCw size={20} className="text-emerald-400" />
+                Update auf {updateStatus?.latest_version}
+              </h3>
+              <button onClick={() => setShowUpdateInstructions(false)} className="text-zinc-400 hover:text-white">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="p-4 space-y-4">
+              <p className="text-sm text-zinc-300">
+                Führe folgende Befehle auf deinem Unraid Server aus:
+              </p>
+              <div className="bg-zinc-950 rounded-lg p-4 font-mono text-sm space-y-2">
+                <div className="flex items-start gap-2">
+                  <span className="text-zinc-500">1.</span>
+                  <code className="text-emerald-400 break-all">cd /pfad/zu/forgepilot</code>
+                </div>
+                <div className="flex items-start gap-2">
+                  <span className="text-zinc-500">2.</span>
+                  <code className="text-emerald-400 break-all">docker-compose -f docker-compose.unraid.yml pull</code>
+                </div>
+                <div className="flex items-start gap-2">
+                  <span className="text-zinc-500">3.</span>
+                  <code className="text-emerald-400 break-all">docker-compose -f docker-compose.unraid.yml up -d</code>
+                </div>
+              </div>
+              <div className="p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg text-sm text-blue-300">
+                <strong>Tipp:</strong> Diese Befehle können auch über das Unraid Terminal oder SSH ausgeführt werden.
+              </div>
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(
+                    `cd /pfad/zu/forgepilot && docker-compose -f docker-compose.unraid.yml pull && docker-compose -f docker-compose.unraid.yml up -d`
+                  );
+                }}
+                className="w-full px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded flex items-center justify-center gap-2"
+              >
+                <Terminal size={16} />
+                Befehle kopieren
+              </button>
+            </div>
+            <div className="p-4 border-t border-zinc-800 flex justify-end">
+              <button onClick={() => setShowUpdateInstructions(false)} className="px-4 py-2 bg-zinc-700 hover:bg-zinc-600 text-white rounded">
+                Schließen
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Navigation */}
       <nav className="h-14 border-b border-zinc-800 bg-zinc-950/80 backdrop-blur-xl flex items-center justify-between px-4 shrink-0 z-50">
         <div className="flex items-center gap-4">
