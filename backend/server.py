@@ -1013,6 +1013,8 @@ async def execute_tool(tool_name: str, arguments: dict, workspace_path: Path, pr
                 issues.append("❌ index.html fehlt")
             else:
                 html_content = index_html.read_text()
+                
+                # Check for visual elements
                 if "<canvas" in html_content.lower():
                     checks_passed.append("✓ Canvas Element gefunden")
                 elif "<div" in html_content.lower() and "game" in html_content.lower():
@@ -1020,10 +1022,23 @@ async def execute_tool(tool_name: str, arguments: dict, workspace_path: Path, pr
                 else:
                     issues.append("⚠️ Kein Canvas oder Game-Container in HTML")
                 
+                # Check for styling
+                if "<style" in html_content.lower() or 'style.css' in html_content.lower():
+                    checks_passed.append("✓ CSS/Styling vorhanden")
+                    # Check if background is styled
+                    if "background" in html_content.lower():
+                        checks_passed.append("✓ Background-Styling erkannt")
+                else:
+                    issues.append("⚠️ Kein CSS - Preview könnte weiß/unsichtbar sein!")
+                
                 if "<script" in html_content.lower():
                     checks_passed.append("✓ Script eingebunden")
                 else:
                     issues.append("❌ Kein Script in HTML eingebunden")
+                
+                # Check for proper script paths (should be relative, not absolute)
+                if 'src="/' in html_content or 'href="/' in html_content:
+                    issues.append("⚠️ WARNUNG: Absolute Pfade gefunden (src=\"/...\") - verwende relative Pfade!")
             
             # Check JavaScript
             script_js = workspace_path / "script.js"
@@ -1059,6 +1074,15 @@ async def execute_tool(tool_name: str, arguments: dict, workspace_path: Path, pr
                     checks_passed.append(f"✓ {js_content.count('function')} Funktionen definiert")
                 else:
                     issues.append("⚠️ Wenige Funktionen - Code möglicherweise unstrukturiert")
+                
+                # Check for immediate visual rendering
+                if "draw" in js_content.lower() or "render" in js_content.lower():
+                    checks_passed.append("✓ Render/Draw Funktion vorhanden")
+                    # Check if it's called on page load
+                    if "window.onload" in js_content or "DOMContentLoaded" in js_content or "draw()" in js_content or "render()" in js_content:
+                        checks_passed.append("✓ Initial rendering beim Laden")
+                    else:
+                        issues.append("⚠️ Draw/Render wird möglicherweise nicht initial aufgerufen")
                 
                 # Game-specific checks
                 game_lower = game_type.lower()
@@ -1196,17 +1220,26 @@ PHASE 5: DEBUGGER AGENT (falls nötig)
 
 MINIMALE ANFORDERUNGEN für "fertig":
 □ index.html existiert und ist valide
-□ Alle Scripts sind eingebunden
+□ Alle Scripts sind eingebunden (im GLEICHEN Verzeichnis, z.B. <script src="script.js">)
 □ Keine Syntax-Fehler
 □ Event-Listener für Benutzerinteraktion
 □ Alle Kern-Funktionen implementiert
 □ Code ist lesbar und strukturiert
+□ PREVIEW IST SICHTBAR: Öffne index.html im Browser → muss Inhalt zeigen!
+
+KRITISCH FÜR PREVIEW:
+□ CSS kann inline im <style> Tag sein ODER als separate style.css (im GLEICHEN Ordner)
+□ JavaScript kann inline im <script> Tag sein ODER als separate script.js (im GLEICHEN Ordner)
+□ KEINE relativen Pfade wie "../css/style.css" oder "/assets/script.js"
+□ Alle Ressourcen im WURZEL-Verzeichnis des Projekts
+□ Teste im Browser: Sieht man SOFORT etwas? Farben? Formen? Text?
 
 FÜR SPIELE zusätzlich:
 □ Game-Loop (requestAnimationFrame/setInterval)
 □ Tastatur/Maus-Steuerung funktioniert
 □ Spiellogik vollständig (Bewegung, Kollision, Punkte)
-□ Visuelles Feedback für Spieler
+□ Visuelles Feedback für Spieler (Canvas, div Elemente, etc.)
+□ Spielfeld ist SOFORT sichtbar (nicht erst nach Tastendruck!)
 □ Start/Neustart möglich
 □ verify_game bestanden
 
