@@ -1758,6 +1758,8 @@ const Workspace = () => {
   const [updateStatus, setUpdateStatus] = useState(null);
   const [showUpdateBanner, setShowUpdateBanner] = useState(true);
   const [showUpdateInstructions, setShowUpdateInstructions] = useState(false);
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [updateMessage, setUpdateMessage] = useState(null);
   // Voice Input State
   const [isListening, setIsListening] = useState(false);
   const [speechSupported, setSpeechSupported] = useState(false);
@@ -1836,6 +1838,45 @@ const Workspace = () => {
     } else {
       recognitionRef.current.start();
       setIsListening(true);
+    }
+  };
+
+  const handleInstallUpdate = async () => {
+    setIsUpdating(true);
+    setUpdateMessage({ type: 'info', text: 'Update wird gestartet...' });
+    
+    try {
+      const res = await axios.post(`${API}/update/install`);
+      
+      if (res.data.triggered) {
+        // Auto-Update wurde erfolgreich getriggert
+        setUpdateMessage({ 
+          type: 'success', 
+          text: 'Update läuft! Die Anwendung wird in ca. 30 Sekunden neu gestartet. Bitte warten...' 
+        });
+        
+        // Seite nach 35 Sekunden neu laden
+        setTimeout(() => {
+          window.location.reload();
+        }, 35000);
+      } else {
+        // Fallback: Zeige manuelle Anweisungen
+        setUpdateMessage({ 
+          type: 'warning', 
+          text: 'Automatisches Update nicht verfügbar. Bitte manuell ausführen.' 
+        });
+        setShowUpdateInstructions(true);
+      }
+    } catch (error) {
+      console.error('Update-Fehler:', error);
+      setUpdateMessage({ 
+        type: 'error', 
+        text: 'Fehler beim Starten des Updates: ' + (error.response?.data?.detail || error.message) 
+      });
+      // Bei Fehler trotzdem Anweisungen zeigen
+      setShowUpdateInstructions(true);
+    } finally {
+      setIsUpdating(false);
     }
   };
 
@@ -2241,7 +2282,7 @@ const Workspace = () => {
           <div className="max-w-7xl mx-auto flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="p-1.5 bg-white/20 rounded-full">
-                <RefreshCw size={16} />
+                <RefreshCw size={16} className={isUpdating ? 'animate-spin' : ''} />
               </div>
               <div>
                 <span className="font-medium">Update verfügbar: Version {updateStatus.latest_version}</span>
@@ -2249,18 +2290,27 @@ const Workspace = () => {
               </div>
             </div>
             <div className="flex items-center gap-2">
+              {updateMessage && (
+                <span className="text-sm px-3 py-1 bg-white/20 rounded-md">
+                  {updateMessage.text}
+                </span>
+              )}
               <button 
-                onClick={() => setShowUpdateInstructions(true)} 
-                className="px-3 py-1 text-sm bg-white text-blue-600 hover:bg-blue-50 rounded-md font-medium transition-colors"
+                onClick={handleInstallUpdate}
+                disabled={isUpdating}
+                className="px-3 py-1 text-sm bg-white text-blue-600 hover:bg-blue-50 rounded-md font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
               >
-                Jetzt updaten
+                {isUpdating && <Loader2 size={14} className="animate-spin" />}
+                {isUpdating ? 'Update läuft...' : 'Jetzt updaten'}
               </button>
-              <button 
-                onClick={() => setShowUpdateBanner(false)} 
-                className="p-1 hover:bg-white/20 rounded-md transition-colors"
-              >
-                <X size={16} />
-              </button>
+              {!isUpdating && (
+                <button 
+                  onClick={() => setShowUpdateBanner(false)} 
+                  className="p-1 hover:bg-white/20 rounded-md transition-colors"
+                >
+                  <X size={16} />
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -2268,62 +2318,99 @@ const Workspace = () => {
 
       {/* Update Instructions Modal */}
       {showUpdateInstructions && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[110] p-4" onClick={() => setShowUpdateInstructions(false)}>
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[110] p-4" onClick={() => !isUpdating && setShowUpdateInstructions(false)}>
           <div className="bg-zinc-900 border border-zinc-700 rounded-lg w-full max-w-lg shadow-2xl" onClick={e => e.stopPropagation()}>
             <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
               <h3 className="text-lg font-medium text-white flex items-center gap-2">
-                <RefreshCw size={20} className="text-emerald-400" />
+                <RefreshCw size={20} className={`text-emerald-400 ${isUpdating ? 'animate-spin' : ''}`} />
                 Update auf {updateStatus?.latest_version}
               </h3>
-              <button onClick={() => setShowUpdateInstructions(false)} className="text-zinc-400 hover:text-white">
-                <X size={20} />
-              </button>
+              {!isUpdating && (
+                <button onClick={() => setShowUpdateInstructions(false)} className="text-zinc-400 hover:text-white">
+                  <X size={20} />
+                </button>
+              )}
             </div>
             <div className="p-4 space-y-4">
-              <p className="text-sm text-zinc-300">
-                Führe <strong>einen</strong> der folgenden Befehle auf deinem Unraid Server aus:
-              </p>
-              
-              {/* Option 1: Update Script */}
-              <div className="bg-zinc-950 rounded-lg p-4">
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 text-xs rounded">Empfohlen</span>
-                  <span className="text-sm font-medium text-white">Update Script</span>
+              {/* Status-Nachricht */}
+              {updateMessage && (
+                <div className={`p-3 rounded-lg text-sm ${
+                  updateMessage.type === 'success' ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-300' :
+                  updateMessage.type === 'error' ? 'bg-rose-500/10 border border-rose-500/30 text-rose-300' :
+                  updateMessage.type === 'warning' ? 'bg-amber-500/10 border border-amber-500/30 text-amber-300' :
+                  'bg-blue-500/10 border border-blue-500/30 text-blue-300'
+                }`}>
+                  {updateMessage.text}
                 </div>
-                <code className="text-emerald-400 font-mono text-sm">./update.sh</code>
-                <p className="text-xs text-zinc-500 mt-2">Das Script macht alles automatisch: Pull, Stop, Remove, Start</p>
-              </div>
-              
-              {/* Option 2: Manuell */}
-              <div className="bg-zinc-950 rounded-lg p-4">
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="text-sm font-medium text-zinc-400">Oder manuell:</span>
+              )}
+
+              {/* Automatisches Update (empfohlen) */}
+              {!isUpdating && (
+                <div className="bg-zinc-950 rounded-lg p-4 border-2 border-emerald-500/30">
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 text-xs rounded font-medium">🚀 Empfohlen</span>
+                    <span className="text-sm font-medium text-white">Automatisches Update</span>
+                  </div>
+                  <p className="text-xs text-zinc-400 mb-3">
+                    Klicke auf den Button, um das Update automatisch durchzuführen. 
+                    Die Anwendung wird in ca. 30 Sekunden neu gestartet.
+                  </p>
+                  <button
+                    onClick={handleInstallUpdate}
+                    disabled={isUpdating}
+                    className="w-full px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded font-medium flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
+                  >
+                    <RefreshCw size={16} />
+                    Automatisches Update starten
+                  </button>
                 </div>
-                <div className="font-mono text-sm space-y-1">
-                  <div className="text-zinc-400">cd /pfad/zu/forgepilot</div>
-                  <div className="text-emerald-400">docker-compose -f docker-compose.unraid.yml pull</div>
-                  <div className="text-emerald-400">docker-compose -f docker-compose.unraid.yml down</div>
-                  <div className="text-emerald-400">docker-compose -f docker-compose.unraid.yml up -d</div>
+              )}
+
+              {/* Manuelle Optionen */}
+              <div className="space-y-3">
+                <p className="text-sm text-zinc-400">
+                  <strong>Alternative:</strong> Manuell auf dem Unraid Server:
+                </p>
+                
+                {/* Option 1: Update Script */}
+                <div className="bg-zinc-950 rounded-lg p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-sm font-medium text-white">Update Script</span>
+                  </div>
+                  <code className="text-emerald-400 font-mono text-sm">./update.sh</code>
+                  <p className="text-xs text-zinc-500 mt-2">Das Script macht alles automatisch: Pull, Stop, Remove, Start</p>
                 </div>
+                
+                {/* Option 2: Manuell */}
+                <div className="bg-zinc-950 rounded-lg p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-sm font-medium text-zinc-400">Oder manuell:</span>
+                  </div>
+                  <div className="font-mono text-sm space-y-1">
+                    <div className="text-zinc-400">cd /pfad/zu/forgepilot</div>
+                    <div className="text-emerald-400">docker-compose -f docker-compose.unraid.yml pull</div>
+                    <div className="text-emerald-400">docker-compose -f docker-compose.unraid.yml down</div>
+                    <div className="text-emerald-400">docker-compose -f docker-compose.unraid.yml up -d</div>
+                  </div>
+                </div>
+                
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText('./update.sh');
+                  }}
+                  className="w-full px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded flex items-center justify-center gap-2"
+                >
+                  <Terminal size={16} />
+                  Script-Befehl kopieren
+                </button>
               </div>
-              
-              <div className="p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg text-sm text-blue-300">
-                <strong>Tipp:</strong> Das Update-Script <code className="bg-zinc-800 px-1 rounded">update.sh</code> liegt im ForgePilot-Verzeichnis.
-              </div>
-              <button
-                onClick={() => {
-                  navigator.clipboard.writeText('./update.sh');
-                }}
-                className="w-full px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded flex items-center justify-center gap-2"
-              >
-                <Terminal size={16} />
-                Script-Befehl kopieren
-              </button>
             </div>
             <div className="p-4 border-t border-zinc-800 flex justify-end">
-              <button onClick={() => setShowUpdateInstructions(false)} className="px-4 py-2 bg-zinc-700 hover:bg-zinc-600 text-white rounded">
-                Schließen
-              </button>
+              {!isUpdating && (
+                <button onClick={() => setShowUpdateInstructions(false)} className="px-4 py-2 bg-zinc-700 hover:bg-zinc-600 text-white rounded">
+                  Schließen
+                </button>
+              )}
             </div>
           </div>
         </div>

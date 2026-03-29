@@ -1,10 +1,7 @@
 version: '3.8'
 
-# ForgePilot für Unraid - Nutzt vorgebaute Images von GitHub Container Registry
+# ForgePilot für Unraid - Mit Auto-Update Support
 # GitHub Repository: https://github.com/AndiTrenter/ForgePilot
-#
-# WICHTIG: In Docker Compose wird der SERVICE-NAME für DNS verwendet, nicht der container_name!
-# Service-Namen hier: mongodb, backend, frontend
 
 services:
   mongodb:
@@ -30,20 +27,13 @@ services:
       mongodb:
         condition: service_healthy
     environment:
-      # MongoDB - nutze SERVICE-NAME "mongodb" (nicht container_name)
       - MONGO_URL=mongodb://mongodb:27017
       - DB_NAME=forgepilot
-      # CORS erlaubt alle Origins
       - CORS_ORIGINS=*
-      # OpenAI API Key (optional - kann auch über UI gesetzt werden)
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      # GitHub Token (optional - kann auch über UI gesetzt werden)
       - GITHUB_TOKEN=${GITHUB_TOKEN:-}
-      # Ollama Konfiguration - WICHTIG: Nutze die Unraid IP, nicht localhost!
-      # Bei Unraid mit separatem Ollama Container: http://192.168.x.x:11434
       - OLLAMA_URL=${OLLAMA_URL:-http://host.docker.internal:11434}
       - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3}
-      # LLM Provider: auto, openai, ollama
       - LLM_PROVIDER=${LLM_PROVIDER:-auto}
     volumes:
       - workspaces:/app/workspaces
@@ -51,7 +41,6 @@ services:
       - "8001:8001"
     networks:
       - forgepilot-network
-    # Für Zugriff auf Host-Netzwerk (Ollama auf Host oder anderer Container)
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:
@@ -76,6 +65,53 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+
+  # Updater Service - Führt automatische Updates durch
+  updater:
+    image: docker:24-cli
+    container_name: forgepilot-updater
+    restart: unless-stopped
+    volumes:
+      # Docker Socket für Container-Kontrolle
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Workspaces für Trigger-Datei
+      - workspaces:/app/workspaces
+      # Compose-Datei für Updates
+      - .:/app/forgepilot:ro
+    working_dir: /app/forgepilot
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        echo "ForgePilot Updater gestartet"
+        TRIGGER_FILE="/app/workspaces/.update_trigger"
+        
+        while true; do
+          if [ -f "$$TRIGGER_FILE" ]; then
+            echo "Update-Trigger erkannt!"
+            echo "[1/4] Lade neue Images..."
+            docker pull ghcr.io/anditrenter/forgepilot/forgepilot-backend:latest
+            docker pull ghcr.io/anditrenter/forgepilot/forgepilot-frontend:latest
+            
+            echo "[2/4] Stoppe alte Container..."
+            docker stop forgepilot-frontend forgepilot-backend || true
+            
+            echo "[3/4] Entferne alte Container..."
+            docker rm forgepilot-frontend forgepilot-backend || true
+            
+            echo "[4/4] Starte neue Container..."
+            docker-compose -f /app/forgepilot/docker-compose.unraid.yml up -d backend frontend
+            
+            echo "Update abgeschlossen!"
+            rm -f "$$TRIGGER_FILE"
+            
+            # Alte Images aufräumen
+            docker image prune -f
+          fi
+          sleep 5
+        done
+    networks:
+      - forgepilot-network
 
 networks:
   forgepilot-network:

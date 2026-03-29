@@ -185,6 +185,33 @@ backend:
       - working: true
         agent: "testing"
         comment: "✅ TESTED: GET /api/update/status returns all required fields: installed_version='1.0.0', latest_version, update_available=false, checking=false, last_checked_at, release_notes, previous_version, last_update_at, last_rollback_at. POST /api/update/check successfully checks GitHub for updates and returns proper response structure"
+      - working: true
+        agent: "main"
+        comment: "Enhanced: POST /api/update/install now creates trigger file for updater service. Returns triggered=true/false with appropriate messages"
+
+  - task: "Auto-Update Trigger System"
+    implemented: true
+    working: "NA"
+    file: "backend/server.py, docker-compose.unraid.yml"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Implemented trigger file system at /app/workspaces/.update_trigger. POST /api/update/install creates trigger file. Updater service in docker-compose.unraid.yml monitors and executes update (docker pull, stop, rm, up). Can only be fully tested in Unraid environment"
+
+  - task: "Master Agent System Prompt"
+    implemented: true
+    working: "NA"
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Enhanced system prompt in run_autonomous_agent() with MASTER AGENT PROTOKOLL. Implements phased approach (PLANNER→CODER→TESTER→REVIEWER→DEBUGGER) with quality checks after each step. Requires functional testing through project creation"
 
   - task: "Ollama Chat Integration"
     implemented: true
@@ -234,6 +261,21 @@ frontend:
       - working: true
         agent: "main"
         comment: "UpdateBanner component shows when update is available"
+      - working: true
+        agent: "main"
+        comment: "Enhanced: Update button now calls handleInstallUpdate() which triggers POST /api/update/install. Shows loading states, success/error messages, and auto-reloads page after 35 seconds. Includes fallback to manual instructions if auto-update fails"
+
+  - task: "Auto-Update UI Flow"
+    implemented: true
+    working: "NA"
+    file: "frontend/src/App.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Implemented complete auto-update UX: 1) Banner shows 'Jetzt updaten' button, 2) Click triggers backend update, 3) Shows 'Update läuft!' message, 4) Auto-reload after 35 seconds. Modal includes automatic update option and manual fallback. Needs UI testing to verify flow"
 
   - task: "Nginx Reverse Proxy Config"
     implemented: true
@@ -255,11 +297,9 @@ metadata:
 
 test_plan:
   current_focus:
-    - "API Status Endpoint mit Version und LLM Info"
-    - "Settings Endpoint mit LLM Provider"
-    - "LLM Status Endpoint"
-    - "Health Check Endpoint"
-    - "Update System Endpoints"
+    - "Auto-Update Trigger System"
+    - "Auto-Update UI Flow"
+    - "Master Agent System Prompt"
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
@@ -269,3 +309,5 @@ agent_communication:
     message: "Implemented all ForgePilot improvements: Nginx reverse proxy, Ollama integration with LLM_PROVIDER, improved settings dialog, update system. Ready for testing."
   - agent: "testing"
     message: "Completed comprehensive testing of all requested ForgePilot API endpoints. All 5 backend tasks tested successfully with 100% pass rate. All endpoints return correct response structure and data as specified in the review request."
+  - agent: "main"
+    message: "NEW FEATURES IMPLEMENTED: 1) Auto-Update Button: Frontend 'Jetzt updaten' button now calls POST /api/update/install, shows loading states, and auto-reloads after 35s. 2) Backend Trigger System: Creates /app/workspaces/.update_trigger file to signal updater service. 3) Master Agent: Enhanced system prompt with phased MASTER AGENT PROTOKOLL for better code quality. All features need testing - auto-update can only be fully tested in Unraid environment, but button/endpoint flow can be tested locally."

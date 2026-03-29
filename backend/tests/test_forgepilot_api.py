@@ -59,8 +59,14 @@ class TestPreviewInfo:
     
     def test_get_preview_info(self):
         """Test GET /api/projects/{id}/preview-info"""
-        # Use the project with ready_for_push=true
-        project_id = "41055ebc-3d0a-41e6-9be2-962493fb2563"
+        # Get first available project
+        projects_response = requests.get(f"{BASE_URL}/api/projects")
+        projects = projects_response.json()
+        
+        if len(projects) == 0:
+            pytest.skip("No projects available")
+        
+        project_id = projects[0]["id"]
         response = requests.get(f"{BASE_URL}/api/projects/{project_id}/preview-info")
         assert response.status_code == 200
         data = response.json()
@@ -80,7 +86,14 @@ class TestAgents:
     
     def test_get_agents(self):
         """Test GET /api/projects/{id}/agents"""
-        project_id = "41055ebc-3d0a-41e6-9be2-962493fb2563"
+        # Get first available project
+        projects_response = requests.get(f"{BASE_URL}/api/projects")
+        projects = projects_response.json()
+        
+        if len(projects) == 0:
+            pytest.skip("No projects available")
+        
+        project_id = projects[0]["id"]
         response = requests.get(f"{BASE_URL}/api/projects/{project_id}/agents")
         assert response.status_code == 200
         data = response.json()
@@ -103,7 +116,14 @@ class TestMessages:
     
     def test_get_messages(self):
         """Test GET /api/projects/{id}/messages"""
-        project_id = "41055ebc-3d0a-41e6-9be2-962493fb2563"
+        # Get first available project
+        projects_response = requests.get(f"{BASE_URL}/api/projects")
+        projects = projects_response.json()
+        
+        if len(projects) == 0:
+            pytest.skip("No projects available")
+        
+        project_id = projects[0]["id"]
         response = requests.get(f"{BASE_URL}/api/projects/{project_id}/messages")
         assert response.status_code == 200
         data = response.json()
@@ -116,7 +136,14 @@ class TestFiles:
     
     def test_get_files(self):
         """Test GET /api/projects/{id}/files"""
-        project_id = "41055ebc-3d0a-41e6-9be2-962493fb2563"
+        # Get first available project
+        projects_response = requests.get(f"{BASE_URL}/api/projects")
+        projects = projects_response.json()
+        
+        if len(projects) == 0:
+            pytest.skip("No projects available")
+        
+        project_id = projects[0]["id"]
         response = requests.get(f"{BASE_URL}/api/projects/{project_id}/files")
         assert response.status_code == 200
         data = response.json()
@@ -133,7 +160,14 @@ class TestRoadmapAndLogs:
     
     def test_get_roadmap(self):
         """Test GET /api/projects/{id}/roadmap"""
-        project_id = "41055ebc-3d0a-41e6-9be2-962493fb2563"
+        # Get first available project
+        projects_response = requests.get(f"{BASE_URL}/api/projects")
+        projects = projects_response.json()
+        
+        if len(projects) == 0:
+            pytest.skip("No projects available")
+        
+        project_id = projects[0]["id"]
         response = requests.get(f"{BASE_URL}/api/projects/{project_id}/roadmap")
         assert response.status_code == 200
         data = response.json()
@@ -143,7 +177,14 @@ class TestRoadmapAndLogs:
     
     def test_get_logs(self):
         """Test GET /api/projects/{id}/logs"""
-        project_id = "41055ebc-3d0a-41e6-9be2-962493fb2563"
+        # Get first available project
+        projects_response = requests.get(f"{BASE_URL}/api/projects")
+        projects = projects_response.json()
+        
+        if len(projects) == 0:
+            pytest.skip("No projects available")
+        
+        project_id = projects[0]["id"]
         response = requests.get(f"{BASE_URL}/api/projects/{project_id}/logs")
         assert response.status_code == 200
         data = response.json()
