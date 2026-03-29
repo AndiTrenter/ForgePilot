@@ -933,9 +933,6 @@ const SettingsModal = ({ isOpen, onClose, onRefreshLLMStatus }) => {
                     placeholder={settings.openai_api_key_set ? 'Neuen Key eingeben zum Ersetzen...' : 'sk-proj-...'}
                     className="flex-1 bg-zinc-800 border border-zinc-700 rounded-md px-3 py-2 text-sm focus:outline-none focus:border-zinc-500 font-mono"
                   />
-                      placeholder={settings.openai_api_key_set ? '••••••••••••••••' : 'sk-...'}
-                      className="flex-1 bg-zinc-800 border border-zinc-700 rounded-md px-3 py-2 text-sm focus:outline-none focus:border-zinc-500"
-                    />
                   <button
                     onClick={saveOpenAIKey}
                     disabled={!openaiKey.trim() || saving}
