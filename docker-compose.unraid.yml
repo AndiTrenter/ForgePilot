@@ -2,6 +2,9 @@ version: '3.8'
 
 # ForgePilot für Unraid - Nutzt vorgebaute Images von GitHub Container Registry
 # GitHub Repository: https://github.com/AndiTrenter/ForgePilot
+#
+# WICHTIG: In Docker Compose wird der SERVICE-NAME für DNS verwendet, nicht der container_name!
+# Service-Namen hier: mongodb, backend, frontend
 
 services:
   mongodb:
@@ -27,8 +30,8 @@ services:
       mongodb:
         condition: service_healthy
     environment:
-      # MongoDB Verbindung (intern im Docker-Netzwerk)
-      - MONGO_URL=mongodb://forgepilot-mongodb:27017
+      # MongoDB - nutze SERVICE-NAME "mongodb" (nicht container_name)
+      - MONGO_URL=mongodb://mongodb:27017
       - DB_NAME=forgepilot
       # CORS erlaubt alle Origins
       - CORS_ORIGINS=*
