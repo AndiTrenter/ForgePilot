@@ -778,7 +778,8 @@ AGENT_TOOLS = [
     {"type": "function", "function": {"name": "create_roadmap", "description": "Create a roadmap item", "parameters": {"type": "object", "properties": {"title": {"type": "string"}, "description": {"type": "string"}}, "required": ["title", "description"]}}},
     {"type": "function", "function": {"name": "update_roadmap_status", "description": "Update roadmap item status", "parameters": {"type": "object", "properties": {"title": {"type": "string"}, "status": {"type": "string", "enum": ["pending", "in_progress", "completed"]}}, "required": ["title", "status"]}}},
     {"type": "function", "function": {"name": "web_search", "description": "Search web for best practices and examples", "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "max_results": {"type": "integer", "default": 5}}, "required": ["query"]}}},
-    {"type": "function", "function": {"name": "test_code", "description": "Test the current code by running it or checking for errors", "parameters": {"type": "object", "properties": {"test_type": {"type": "string", "enum": ["syntax", "run", "lint"]}, "file_path": {"type": "string"}}, "required": ["test_type"]}}},
+    {"type": "function", "function": {"name": "test_code", "description": "Test the current code by running it or checking for errors", "parameters": {"type": "object", "properties": {"test_type": {"type": "string", "enum": ["syntax", "run", "lint", "completeness"]}, "file_path": {"type": "string"}}, "required": ["test_type"]}}},
+    {"type": "function", "function": {"name": "verify_game", "description": "Verify that a game is complete and playable. MUST be called before mark_complete for any game project.", "parameters": {"type": "object", "properties": {"game_type": {"type": "string", "description": "Type of game (e.g., tetris, snake, pong)"}}, "required": ["game_type"]}}},
     {"type": "function", "function": {"name": "debug_error", "description": "Analyze and fix an error", "parameters": {"type": "object", "properties": {"error_message": {"type": "string"}, "file_path": {"type": "string"}}, "required": ["error_message"]}}},
     {"type": "function", "function": {"name": "ask_user", "description": "Ask user a question when clarification is needed", "parameters": {"type": "object", "properties": {"question": {"type": "string"}}, "required": ["question"]}}},
     {"type": "function", "function": {"name": "mark_complete", "description": "Mark project as complete and ready for push", "parameters": {"type": "object", "properties": {"summary": {"type": "string"}, "tested_features": {"type": "array", "items": {"type": "string"}}}, "required": ["summary", "tested_features"]}}}
@@ -923,24 +924,160 @@ async def execute_tool(tool_name: str, arguments: dict, workspace_path: Path, pr
             
             if test_type == "syntax":
                 errors = []
-                for f in workspace_path.rglob("*.js"):
+                js_files = list(workspace_path.rglob("*.js"))
+                for f in js_files:
                     try:
                         subprocess.run(["node", "--check", str(f)], capture_output=True, check=True)
                     except subprocess.CalledProcessError as e:
                         errors.append(f"{f.name}: {e.stderr.decode()[:200]}")
-                result["output"] = "✓ Syntax OK" if not errors else "Syntax-Fehler:\n" + "\n".join(errors)
+                
+                if not js_files:
+                    result["output"] = "⚠️ Keine JavaScript-Dateien gefunden"
+                elif errors:
+                    result["output"] = "✗ Syntax-Fehler gefunden:\n" + "\n".join(errors)
+                else:
+                    result["output"] = f"✓ Syntax OK ({len(js_files)} JS-Dateien geprüft)"
             
             elif test_type == "run":
                 index_html = workspace_path / "index.html"
                 if index_html.exists():
-                    result["output"] = "✓ index.html existiert - Preview verfügbar"
+                    # Prüfe ob index.html Inhalt hat und JS einbindet
+                    content = index_html.read_text()
+                    has_script = "<script" in content.lower()
+                    has_body = "<body" in content.lower()
+                    
+                    if not has_body:
+                        result["output"] = "✗ index.html hat keinen <body> Tag"
+                    elif not has_script:
+                        result["output"] = "⚠️ index.html bindet kein JavaScript ein"
+                    else:
+                        # Prüfe ob script.js existiert und Inhalt hat
+                        script_js = workspace_path / "script.js"
+                        if script_js.exists():
+                            js_content = script_js.read_text()
+                            if len(js_content) < 100:
+                                result["output"] = "⚠️ script.js ist sehr kurz - möglicherweise unvollständig"
+                            elif "addEventListener" in js_content or "requestAnimationFrame" in js_content or "setInterval" in js_content:
+                                result["output"] = "✓ index.html und script.js vorhanden - Event-Handling erkannt"
+                            else:
+                                result["output"] = "⚠️ script.js hat keine Event-Listener - Interaktivität fehlt möglicherweise"
+                        else:
+                            result["output"] = "⚠️ index.html existiert aber script.js fehlt"
                 else:
-                    result["output"] = "✗ Keine index.html gefunden"
+                    result["output"] = "✗ Keine index.html gefunden - Preview nicht möglich"
             
             elif test_type == "lint":
-                result["output"] = "✓ Lint-Check durchgeführt"
+                # Erweiterte Prüfung
+                issues = []
+                for js_file in workspace_path.rglob("*.js"):
+                    content = js_file.read_text()
+                    if "TODO" in content or "FIXME" in content:
+                        issues.append(f"{js_file.name}: Enthält TODO/FIXME Kommentare")
+                    if "console.log" in content:
+                        issues.append(f"{js_file.name}: Enthält console.log (Debug-Code)")
+                
+                if issues:
+                    result["output"] = "⚠️ Lint-Hinweise:\n• " + "\n• ".join(issues)
+                else:
+                    result["output"] = "✓ Lint-Check OK - Keine Probleme gefunden"
             
             await update_agent(project_id, "tester", "completed", "Test abgeschlossen")
+        
+        elif tool_name == "verify_game":
+            game_type = arguments.get("game_type", "unknown")
+            await update_agent(project_id, "tester", "running", f"Verifiziere Spiel: {game_type}")
+            
+            issues = []
+            checks_passed = []
+            
+            # Check index.html
+            index_html = workspace_path / "index.html"
+            if not index_html.exists():
+                issues.append("❌ index.html fehlt")
+            else:
+                html_content = index_html.read_text()
+                if "<canvas" in html_content.lower():
+                    checks_passed.append("✓ Canvas Element gefunden")
+                elif "<div" in html_content.lower() and "game" in html_content.lower():
+                    checks_passed.append("✓ Game Container gefunden")
+                else:
+                    issues.append("⚠️ Kein Canvas oder Game-Container in HTML")
+                
+                if "<script" in html_content.lower():
+                    checks_passed.append("✓ Script eingebunden")
+                else:
+                    issues.append("❌ Kein Script in HTML eingebunden")
+            
+            # Check JavaScript
+            script_js = workspace_path / "script.js"
+            if not script_js.exists():
+                # Try to find any JS file
+                js_files = list(workspace_path.rglob("*.js"))
+                if js_files:
+                    script_js = js_files[0]
+                else:
+                    issues.append("❌ Keine JavaScript-Datei gefunden")
+            
+            if script_js.exists():
+                js_content = script_js.read_text()
+                js_lines = len(js_content.split('\n'))
+                
+                if js_lines < 50:
+                    issues.append(f"⚠️ JavaScript nur {js_lines} Zeilen - wahrscheinlich unvollständig")
+                else:
+                    checks_passed.append(f"✓ JavaScript hat {js_lines} Zeilen")
+                
+                # Check for game essentials
+                if "addEventListener" in js_content:
+                    checks_passed.append("✓ Event-Listener vorhanden")
+                else:
+                    issues.append("❌ Keine Event-Listener - Spiel reagiert nicht auf Eingaben")
+                
+                if "requestAnimationFrame" in js_content or "setInterval" in js_content:
+                    checks_passed.append("✓ Game-Loop vorhanden")
+                else:
+                    issues.append("❌ Kein Game-Loop (requestAnimationFrame/setInterval)")
+                
+                if "function" in js_content and js_content.count("function") >= 3:
+                    checks_passed.append(f"✓ {js_content.count('function')} Funktionen definiert")
+                else:
+                    issues.append("⚠️ Wenige Funktionen - Code möglicherweise unstrukturiert")
+                
+                # Game-specific checks
+                game_lower = game_type.lower()
+                if "tetris" in game_lower:
+                    if "rotate" in js_content.lower():
+                        checks_passed.append("✓ Rotation-Logik erkannt")
+                    else:
+                        issues.append("⚠️ Keine Rotation-Funktion für Tetris")
+                    if "collision" in js_content.lower() or "collide" in js_content.lower():
+                        checks_passed.append("✓ Kollisionserkennung vorhanden")
+                    else:
+                        issues.append("❌ Keine Kollisionserkennung")
+                
+                elif "snake" in game_lower:
+                    if "direction" in js_content.lower():
+                        checks_passed.append("✓ Richtungssteuerung erkannt")
+                    if "food" in js_content.lower() or "apple" in js_content.lower():
+                        checks_passed.append("✓ Food/Apple Logik vorhanden")
+                
+                elif "pong" in game_lower:
+                    if "paddle" in js_content.lower():
+                        checks_passed.append("✓ Paddle-Logik erkannt")
+                    if "ball" in js_content.lower():
+                        checks_passed.append("✓ Ball-Logik vorhanden")
+            
+            # Summary
+            if not issues:
+                result["output"] = f"✅ Spiel-Verifikation BESTANDEN\n\n" + "\n".join(checks_passed) + "\n\n🎮 Das Spiel scheint vollständig zu sein!"
+            elif len(issues) <= 2 and len(checks_passed) >= 4:
+                result["output"] = f"⚠️ Spiel-Verifikation mit Hinweisen:\n\n" + "\n".join(checks_passed) + "\n\nHinweise:\n" + "\n".join(issues) + "\n\nDas Spiel könnte funktionieren, aber prüfe die Hinweise."
+            else:
+                result["output"] = f"❌ Spiel-Verifikation FEHLGESCHLAGEN\n\nProbleme:\n" + "\n".join(issues) + "\n\nErfolgreich:\n" + "\n".join(checks_passed) + "\n\n⚠️ Das Spiel ist NICHT vollständig. Bitte behebe die Probleme!"
+                result["continue"] = True  # Force agent to continue fixing
+            
+            await update_agent(project_id, "tester", "completed", "Verifikation abgeschlossen")
+            await add_log(project_id, "info" if not issues else "warning", f"Spiel-Verifikation: {len(checks_passed)} OK, {len(issues)} Probleme", "tester")
         
         elif tool_name == "debug_error":
             error_msg = arguments["error_message"]
@@ -1002,10 +1139,11 @@ DEINE TOOLS:
 2. create_file / modify_file / read_file / delete_file - Dateien verwalten
 3. run_command - npm/pip/python/node Befehle ausführen
 4. create_roadmap / update_roadmap_status - Fortschritt tracken
-5. test_code - Code testen (syntax/run/lint)
-6. debug_error - Fehler analysieren und beheben
-7. ask_user - NUR wenn du eine wichtige Frage hast
-8. mark_complete - Wenn ALLES fertig und getestet ist
+5. test_code - Code testen (syntax/run/lint/completeness)
+6. verify_game - PFLICHT für Spiele! Prüft ob Spiel vollständig und spielbar ist
+7. debug_error - Fehler analysieren und beheben
+8. ask_user - NUR wenn du eine wichtige Frage hast
+9. mark_complete - NUR wenn wirklich ALLES funktioniert und getestet ist
 
 ARBEITSWEISE - AUTONOM:
 1. Recherchiere zuerst Best Practices (web_search)
@@ -1013,13 +1151,29 @@ ARBEITSWEISE - AUTONOM:
 3. Implementiere Schritt für Schritt
 4. Teste nach jeder Änderung
 5. Behebe Fehler automatisch
-6. Markiere als fertig wenn alles funktioniert
+6. Markiere als fertig ERST wenn alles wirklich funktioniert
 
-WICHTIG:
-- Arbeite AUTONOM weiter bis fertig oder Frage nötig
-- Nutze ask_user NUR bei echten Fragen
-- Nutze mark_complete wenn ALLES fertig ist
-- Antworte auf Deutsch"""
+⚠️ KRITISCH - TESTING REGELN:
+- Du MUSST test_code mit type="syntax" für ALLE JS-Dateien ausführen
+- Du MUSST test_code mit type="run" ausführen um zu prüfen ob index.html existiert
+- Du MUSST den Code LESEN (read_file) und prüfen ob er vollständig ist
+- NIEMALS mark_complete aufrufen ohne vorher ALLE Tests durchgeführt zu haben
+- Wenn ein Spiel erstellt wird: Prüfe ob Spiellogik, Event-Listener, und Rendering vollständig sind
+- Wenn eine App erstellt wird: Prüfe ob alle Funktionen implementiert sind
+
+BEI SPIELEN SPEZIELL:
+- Du MUSST verify_game aufrufen bevor du mark_complete nutzt!
+- Canvas/DOM Elemente müssen korrekt initialisiert sein
+- Event-Listener für Tastatur/Maus müssen vorhanden sein
+- Game-Loop (requestAnimationFrame oder setInterval) muss implementiert sein
+- Kollisionserkennung muss funktionieren
+- Der Code muss VOLLSTÄNDIG sein - keine Platzhalter oder TODOs
+- Wenn verify_game Fehler zeigt, MUSST du diese beheben!
+
+ERST WENN ALLE DIESE BEDINGUNGEN ERFÜLLT SIND, darfst du mark_complete aufrufen.
+Wenn du unsicher bist ob etwas funktioniert, nutze ask_user um den Nutzer zu fragen.
+
+Antworte auf Deutsch."""
 
     messages = [{"role": "system", "content": system_prompt}] + initial_messages
     iteration = 0
