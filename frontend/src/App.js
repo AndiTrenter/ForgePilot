@@ -1268,36 +1268,41 @@ const SettingsModal = ({ isOpen, onClose, onRefreshLLMStatus }) => {
                     </div>
                     <div className="p-4 space-y-4">
                       <p className="text-sm text-zinc-300">
-                        Führe folgende Befehle auf deinem Unraid Server aus:
+                        Führe <strong>einen</strong> der folgenden Befehle auf deinem Unraid Server aus:
                       </p>
-                      <div className="bg-zinc-950 rounded-lg p-4 font-mono text-sm space-y-2">
-                        <div className="flex items-center gap-2">
-                          <span className="text-zinc-500">1.</span>
-                          <code className="text-emerald-400">cd /pfad/zu/forgepilot</code>
+                      
+                      {/* Option 1: Update Script */}
+                      <div className="bg-zinc-950 rounded-lg p-4">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 text-xs rounded">Empfohlen</span>
+                          <span className="text-sm font-medium text-white">Update Script</span>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-zinc-500">2.</span>
-                          <code className="text-emerald-400">docker-compose -f docker-compose.unraid.yml pull</code>
+                        <code className="text-emerald-400 font-mono text-sm">./update.sh</code>
+                        <p className="text-xs text-zinc-500 mt-2">Das Script macht alles automatisch: Pull, Stop, Remove, Start</p>
+                      </div>
+                      
+                      {/* Option 2: Manuell */}
+                      <div className="bg-zinc-950 rounded-lg p-4">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="text-sm font-medium text-zinc-400">Oder manuell:</span>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-zinc-500">3.</span>
-                          <code className="text-emerald-400">docker-compose -f docker-compose.unraid.yml up -d</code>
+                        <div className="font-mono text-xs space-y-1">
+                          <div className="text-zinc-400">cd /pfad/zu/forgepilot</div>
+                          <div className="text-emerald-400">docker-compose -f docker-compose.unraid.yml pull</div>
+                          <div className="text-emerald-400">docker-compose -f docker-compose.unraid.yml down</div>
+                          <div className="text-emerald-400">docker-compose -f docker-compose.unraid.yml up -d</div>
                         </div>
                       </div>
-                      <div className="p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg text-sm text-blue-300">
-                        <strong>Tipp:</strong> Diese Befehle können auch über das Unraid Terminal oder SSH ausgeführt werden.
-                      </div>
+                      
                       <button
                         onClick={() => {
-                          navigator.clipboard.writeText(
-                            `cd /pfad/zu/forgepilot && docker-compose -f docker-compose.unraid.yml pull && docker-compose -f docker-compose.unraid.yml up -d`
-                          );
-                          setMessage({ type: 'success', text: 'Befehle in Zwischenablage kopiert!' });
+                          navigator.clipboard.writeText('./update.sh');
+                          setMessage({ type: 'success', text: 'Script-Befehl kopiert!' });
                         }}
                         className="w-full px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded flex items-center justify-center gap-2"
                       >
                         <Terminal size={16} />
-                        Befehle kopieren
+                        Script-Befehl kopieren
                       </button>
                     </div>
                     <div className="p-4 border-t border-zinc-800 flex justify-end">
@@ -2276,35 +2281,43 @@ const Workspace = () => {
             </div>
             <div className="p-4 space-y-4">
               <p className="text-sm text-zinc-300">
-                Führe folgende Befehle auf deinem Unraid Server aus:
+                Führe <strong>einen</strong> der folgenden Befehle auf deinem Unraid Server aus:
               </p>
-              <div className="bg-zinc-950 rounded-lg p-4 font-mono text-sm space-y-2">
-                <div className="flex items-start gap-2">
-                  <span className="text-zinc-500">1.</span>
-                  <code className="text-emerald-400 break-all">cd /pfad/zu/forgepilot</code>
+              
+              {/* Option 1: Update Script */}
+              <div className="bg-zinc-950 rounded-lg p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 text-xs rounded">Empfohlen</span>
+                  <span className="text-sm font-medium text-white">Update Script</span>
                 </div>
-                <div className="flex items-start gap-2">
-                  <span className="text-zinc-500">2.</span>
-                  <code className="text-emerald-400 break-all">docker-compose -f docker-compose.unraid.yml pull</code>
+                <code className="text-emerald-400 font-mono text-sm">./update.sh</code>
+                <p className="text-xs text-zinc-500 mt-2">Das Script macht alles automatisch: Pull, Stop, Remove, Start</p>
+              </div>
+              
+              {/* Option 2: Manuell */}
+              <div className="bg-zinc-950 rounded-lg p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-sm font-medium text-zinc-400">Oder manuell:</span>
                 </div>
-                <div className="flex items-start gap-2">
-                  <span className="text-zinc-500">3.</span>
-                  <code className="text-emerald-400 break-all">docker-compose -f docker-compose.unraid.yml up -d</code>
+                <div className="font-mono text-sm space-y-1">
+                  <div className="text-zinc-400">cd /pfad/zu/forgepilot</div>
+                  <div className="text-emerald-400">docker-compose -f docker-compose.unraid.yml pull</div>
+                  <div className="text-emerald-400">docker-compose -f docker-compose.unraid.yml down</div>
+                  <div className="text-emerald-400">docker-compose -f docker-compose.unraid.yml up -d</div>
                 </div>
               </div>
+              
               <div className="p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg text-sm text-blue-300">
-                <strong>Tipp:</strong> Diese Befehle können auch über das Unraid Terminal oder SSH ausgeführt werden.
+                <strong>Tipp:</strong> Das Update-Script <code className="bg-zinc-800 px-1 rounded">update.sh</code> liegt im ForgePilot-Verzeichnis.
               </div>
               <button
                 onClick={() => {
-                  navigator.clipboard.writeText(
-                    `cd /pfad/zu/forgepilot && docker-compose -f docker-compose.unraid.yml pull && docker-compose -f docker-compose.unraid.yml up -d`
-                  );
+                  navigator.clipboard.writeText('./update.sh');
                 }}
                 className="w-full px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded flex items-center justify-center gap-2"
               >
                 <Terminal size={16} />
-                Befehle kopieren
+                Script-Befehl kopieren
               </button>
             </div>
             <div className="p-4 border-t border-zinc-800 flex justify-end">

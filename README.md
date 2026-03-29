@@ -111,19 +111,35 @@ OLLAMA_MODEL=llama3
 
 ForgePilot kann automatisch nach Updates suchen und diese installieren.
 
-### Update prüfen
-- Öffne Einstellungen (Ctrl+,)
-- Tab "Updates" wählen
-- "Prüfen" klicken
+### Update durchführen
 
-### Update installieren
-1. Bei verfügbarem Update erscheint ein Banner
-2. Klicke "Jetzt updaten"
-3. Folge den angezeigten Schritten:
-   ```bash
-   docker-compose -f docker-compose.unraid.yml pull
-   docker-compose -f docker-compose.unraid.yml up -d
-   ```
+**Empfohlen: Update-Script verwenden**
+```bash
+cd /pfad/zu/forgepilot
+./update.sh
+```
+
+Das Script macht automatisch:
+1. Prüft auf neue Version
+2. Lädt neue Images herunter
+3. Stoppt alte Container
+4. Entfernt alte Container
+5. Startet neue Container
+6. Verifiziert die Installation
+
+**Weitere Optionen:**
+```bash
+./update.sh --check   # Nur prüfen ob Update verfügbar
+./update.sh --force   # Update erzwingen
+```
+
+### Manuelles Update
+```bash
+cd /pfad/zu/forgepilot
+docker-compose -f docker-compose.unraid.yml pull
+docker-compose -f docker-compose.unraid.yml down
+docker-compose -f docker-compose.unraid.yml up -d
+```
 
 ### Rollback
 Falls ein Update Probleme verursacht:
