@@ -550,7 +550,7 @@ async def get_update_status():
 
 @api_router.post("/update/check")
 async def check_for_updates():
-    """Check GitHub for new releases"""
+    """Check GitHub for new version by reading VERSION file directly"""
     await update_collection.update_one(
         {"_id": "update_status"},
         {"$set": {"checking": True}},
@@ -559,21 +559,47 @@ async def check_for_updates():
     
     try:
         async with httpx.AsyncClient(timeout=30) as http_client:
-            # Check GitHub API for latest release
-            response = await http_client.get(
-                "https://api.github.com/repos/AndiTrenter/ForgePilot/releases/latest",
-                headers={"Accept": "application/vnd.github.v3+json"}
+            # Methode 1: VERSION Datei direkt von GitHub raw laden (funktioniert ohne Release)
+            version_response = await http_client.get(
+                "https://raw.githubusercontent.com/AndiTrenter/ForgePilot/main/VERSION",
+                follow_redirects=True
             )
             
-            if response.status_code == 200:
-                release = response.json()
-                latest_version = release.get("tag_name", "").lstrip("v")
-                release_notes = release.get("body", "")
+            latest_version = None
+            release_notes = ""
+            
+            if version_response.status_code == 200:
+                latest_version = version_response.text.strip()
+                logger.info(f"Found VERSION on GitHub: {latest_version}")
                 
+                # Versuche auch Release Notes zu laden (optional)
+                try:
+                    release_response = await http_client.get(
+                        "https://api.github.com/repos/AndiTrenter/ForgePilot/releases/latest",
+                        headers={"Accept": "application/vnd.github.v3+json"}
+                    )
+                    if release_response.status_code == 200:
+                        release = release_response.json()
+                        release_notes = release.get("body", "")
+                except:
+                    pass
+            else:
+                # Fallback: Versuche Releases API
+                release_response = await http_client.get(
+                    "https://api.github.com/repos/AndiTrenter/ForgePilot/releases/latest",
+                    headers={"Accept": "application/vnd.github.v3+json"}
+                )
+                if release_response.status_code == 200:
+                    release = release_response.json()
+                    latest_version = release.get("tag_name", "").lstrip("v")
+                    release_notes = release.get("body", "")
+            
+            if latest_version:
                 # Compare versions
                 def parse_version(v):
                     try:
-                        return tuple(map(int, v.split(".")))
+                        parts = v.replace("-", ".").split(".")
+                        return tuple(map(int, parts[:3]))
                     except:
                         return (0, 0, 0)
                 
@@ -587,7 +613,7 @@ async def check_for_updates():
                         "checking": False,
                         "latest_version": latest_version,
                         "update_available": update_available,
-                        "release_notes": release_notes,
+                        "release_notes": release_notes or f"Update auf Version {latest_version}",
                         "last_checked_at": datetime.now(timezone.utc).isoformat()
                     }},
                     upsert=True
@@ -598,10 +624,10 @@ async def check_for_updates():
                     "installed_version": APP_VERSION,
                     "latest_version": latest_version,
                     "update_available": update_available,
-                    "release_notes": release_notes
+                    "release_notes": release_notes or f"Update auf Version {latest_version}"
                 }
-            elif response.status_code == 404:
-                # No releases yet
+            else:
+                # Keine Version gefunden
                 await update_collection.update_one(
                     {"_id": "update_status"},
                     {"$set": {
@@ -617,10 +643,8 @@ async def check_for_updates():
                     "installed_version": APP_VERSION,
                     "latest_version": APP_VERSION,
                     "update_available": False,
-                    "message": "Keine Releases gefunden"
+                    "message": "Konnte VERSION nicht von GitHub laden"
                 }
-            else:
-                raise HTTPException(status_code=502, detail=f"GitHub API error: {response.status_code}")
                 
     except httpx.TimeoutException:
         await update_collection.update_one(
