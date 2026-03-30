@@ -9,7 +9,7 @@ import {
   Folder, File, ChevronDown, Save, LayoutPanelLeft, GitCommit,
   Check, Circle, ArrowRight, Lock, Globe, Upload, Search,
   ExternalLink, Mic, MicOff, Square, PanelRightClose, PanelRightOpen,
-  Maximize2, Minimize2, Rocket
+  Maximize2, Minimize2, Rocket, Paperclip, Image as ImageIcon
 } from "lucide-react";
 import DeployModal from "./DeployModal";
 import Prism from 'prismjs';
@@ -186,59 +186,64 @@ const AgentActivityItem = ({ activity }) => {
 // ============== Project Summary Component ==============
 
 const ProjectSummary = ({ previewInfo, onPush, isPushing, onDeploy, isDeploying }) => {
+  const [isExpanded, setIsExpanded] = useState(false);
+  
   if (!previewInfo?.ready_for_push) return null;
   
   return (
-    <div className="p-4 bg-gradient-to-r from-emerald-500/10 to-blue-500/10 border border-emerald-500/30 rounded-lg animate-fade-in">
-      <div className="flex items-start gap-3">
-        <div className="p-2 bg-emerald-500/20 rounded-lg">
-          <CheckCircle2 size={24} className="text-emerald-400" />
-        </div>
-        <div className="flex-1">
-          <h3 className="text-lg font-semibold text-emerald-300 flex items-center gap-2">
-            Projekt fertig!
-            <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 text-xs rounded-full">Bereit für Push</span>
-          </h3>
-          <p className="text-sm text-zinc-400 mt-1">{previewInfo.pending_commit_message}</p>
-          
-          {previewInfo.tested_features?.length > 0 && (
-            <div className="mt-3">
-              <p className="text-xs text-zinc-500 mb-1.5">Getestete Features:</p>
-              <div className="flex flex-wrap gap-1.5">
-                {previewInfo.tested_features.map((feature, i) => (
-                  <span key={i} className="px-2 py-0.5 bg-zinc-800 border border-zinc-700 text-zinc-300 text-xs rounded-full flex items-center gap-1">
-                    <Check size={10} className="text-emerald-400" />
-                    {feature}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-          
-          <div className="flex items-center gap-2 mt-4">
-            <button 
-              onClick={onPush}
-              disabled={isPushing}
-              className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-medium rounded-md transition-colors disabled:opacity-50"
-            >
-              {isPushing ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
-              Jetzt zu GitHub pushen
-            </button>
-            <button 
-              onClick={onDeploy}
-              disabled={isDeploying}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-medium rounded-md transition-colors disabled:opacity-50"
-            >
-              {isDeploying ? <Loader2 size={16} className="animate-spin" /> : <Rocket size={16} />}
-              {isDeploying ? 'Starte Deploy...' : 'Deploy starten'}
-            </button>
-            <button className="flex items-center gap-2 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded-md transition-colors">
-              <ExternalLink size={16} />
-              Live Preview öffnen
-            </button>
+    <div className="p-3 bg-gradient-to-r from-emerald-500/10 to-blue-500/10 border border-emerald-500/30 rounded-lg">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <CheckCircle2 size={20} className="text-emerald-400" />
+          <div>
+            <h3 className="text-sm font-semibold text-emerald-300">Projekt fertig!</h3>
+            <p className="text-xs text-zinc-400">{previewInfo.pending_commit_message}</p>
           </div>
         </div>
+        
+        <div className="flex items-center gap-2 shrink-0">
+          <button 
+            onClick={onPush}
+            disabled={isPushing}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-medium rounded transition-colors disabled:opacity-50"
+          >
+            {isPushing ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+            GitHub pushen
+          </button>
+          <button 
+            onClick={onDeploy}
+            disabled={isDeploying}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded transition-colors disabled:opacity-50"
+          >
+            {isDeploying ? <Loader2 size={14} className="animate-spin" /> : <Rocket size={14} />}
+            Deploy
+          </button>
+          {previewInfo.tested_features?.length > 0 && (
+            <button
+              onClick={() => setIsExpanded(!isExpanded)}
+              className="p-1.5 hover:bg-zinc-800 rounded text-zinc-400 hover:text-white"
+              title={isExpanded ? "Features ausblenden" : "Getestete Features anzeigen"}
+            >
+              {isExpanded ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+            </button>
+          )}
+        </div>
       </div>
+      
+      {/* Expanded Features */}
+      {isExpanded && previewInfo.tested_features?.length > 0 && (
+        <div className="mt-3 pt-3 border-t border-zinc-700">
+          <p className="text-xs text-zinc-500 mb-1.5">Getestete Features:</p>
+          <div className="flex flex-wrap gap-1.5">
+            {previewInfo.tested_features.map((feature, i) => (
+              <span key={i} className="px-2 py-0.5 bg-zinc-800 border border-zinc-700 text-zinc-300 text-xs rounded-full flex items-center gap-1">
+                <Check size={10} className="text-emerald-400" />
+                {feature}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -1772,6 +1777,9 @@ const Workspace = () => {
   // Deploy Modal State
   const [showDeployModal, setShowDeployModal] = useState(false);
   const [isDeploying, setIsDeploying] = useState(false);
+  // File Upload State
+  const [uploadedFiles, setUploadedFiles] = useState([]);
+  const fileInputRef = useRef(null);
   // Voice Input State
   const [isListening, setIsListening] = useState(false);
   const [speechSupported, setSpeechSupported] = useState(false);
@@ -1905,6 +1913,36 @@ const Workspace = () => {
     } finally {
       setIsDeploying(false);
     }
+  };
+
+  const handleFileUpload = (e) => {
+    const files = Array.from(e.target.files);
+    const newFiles = [];
+    
+    files.forEach(file => {
+      // Only allow images and text files
+      if (file.type.startsWith('image/') || file.type.startsWith('text/')) {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          newFiles.push({
+            name: file.name,
+            type: file.type,
+            size: file.size,
+            data: event.target.result,
+            preview: file.type.startsWith('image/') ? event.target.result : null
+          });
+          
+          if (newFiles.length === files.length) {
+            setUploadedFiles(prev => [...prev, ...newFiles]);
+          }
+        };
+        reader.readAsDataURL(file);
+      }
+    });
+  };
+
+  const removeFile = (index) => {
+    setUploadedFiles(prev => prev.filter((_, i) => i !== index));
   };
 
   // Keyboard Shortcuts
@@ -2601,9 +2639,54 @@ const Workspace = () => {
             <button onClick={scrollToBottom} className="w-full text-xs text-zinc-500 hover:text-zinc-300 py-1 transition-colors">↓ Zum Ende scrollen</button>
           </div>
 
+          {/* Chat Input Area */}
           <div className="p-3 border-t border-zinc-800 bg-zinc-900/50 shrink-0">
+            {/* Uploaded Files Preview */}
+            {uploadedFiles.length > 0 && (
+              <div className="mb-2 flex flex-wrap gap-2">
+                {uploadedFiles.map((file, idx) => (
+                  <div key={idx} className="relative group">
+                    {file.preview ? (
+                      <img src={file.preview} alt={file.name} className="h-16 w-16 object-cover rounded border border-zinc-700" />
+                    ) : (
+                      <div className="h-16 w-16 bg-zinc-800 rounded border border-zinc-700 flex items-center justify-center">
+                        <File size={24} className="text-zinc-500" />
+                      </div>
+                    )}
+                    <button
+                      onClick={() => removeFile(idx)}
+                      className="absolute -top-1 -right-1 bg-red-500 hover:bg-red-600 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      <X size={12} />
+                    </button>
+                    <div className="text-xs text-zinc-500 mt-1 max-w-[64px] truncate">{file.name}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+            
             <div className="flex items-end gap-2">
               <textarea value={inputValue} onChange={(e) => setInputValue(e.target.value)} onKeyDown={handleKeyDown} placeholder={isListening ? "Sprich jetzt..." : "Nachricht an Agent..."} rows={2} className={`flex-1 bg-zinc-800 border text-white px-3 py-2 rounded-md focus:outline-none placeholder:text-zinc-600 resize-none text-sm transition-colors ${isListening ? 'border-red-500 bg-red-500/10' : 'border-zinc-700 focus:border-zinc-500'}`} data-testid="chat-input" />
+              
+              {/* File Upload Button */}
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept="image/*,text/*"
+                onChange={handleFileUpload}
+                className="hidden"
+              />
+              <Tooltip text="Dateien anhängen (Bilder, Logs, Screenshots)" position="top">
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isLoading}
+                  className="p-2 bg-zinc-700 text-zinc-300 rounded-md hover:bg-zinc-600 hover:text-white disabled:opacity-50 transition-colors"
+                >
+                  <Paperclip size={18} />
+                </button>
+              </Tooltip>
+              
               {speechSupported && (
                 <Tooltip text={isListening ? "Spracherkennung stoppen" : "Spracherkennung starten (Deutsch)"} position="top">
                   <button 
