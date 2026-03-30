@@ -1191,7 +1191,7 @@ async def execute_tool(tool_name: str, arguments: dict, workspace_path: Path, pr
 
 # ============== AUTONOMOUS AGENT LOOP ==============
 
-async def run_autonomous_agent(project_id: str, workspace_path: Path, initial_messages: list, max_iterations: int = 20):
+async def run_autonomous_agent(project_id: str, workspace_path: Path, initial_messages: list, max_iterations: int = 50):
     """Run the agent autonomously until complete or needs user input"""
     
     files_context = "\n".join([str(f.relative_to(workspace_path)) for f in workspace_path.rglob("*") if f.is_file() and not any(p in str(f) for p in ['.git', 'node_modules'])][:30])
@@ -1310,6 +1310,12 @@ WENN Tests fehlschlagen:
 → Fehler beheben und erneut testen
 → Erst bei ALLEN grünen Tests weitermachen
 
+🚨 VOLLAUTOMATISCH ARBEITEN:
+- Nutze ask_user NUR für KRITISCHE Blocker (API Keys, fundamentale Unklarheiten)
+- Triff Design/Tech-Entscheidungen selbst
+- Bei 70% Sicherheit → Mach es ohne Frage!
+- Arbeite durch bis mark_complete
+
 Antworte auf Deutsch."""
 
     messages = [{"role": "system", "content": system_prompt}] + initial_messages
@@ -1362,9 +1368,11 @@ Antworte auf Deutsch."""
                 if content:
                     yield f"data: {json.dumps({'content': content, 'iteration': iteration, 'provider': 'openai'})}\n\n"
                 
+                # Continue if there are tool calls, don't stop after every response
                 if not tool_calls:
-                    should_continue = False
-                    break
+                    # Only stop if no more tool calls (agent is done or thinking)
+                    # Let it continue unless it explicitly says it's done
+                    pass  # Don't set should_continue = False here
                 
                 messages.append({"role": "assistant", "content": content, "tool_calls": [{"id": tc.id, "type": "function", "function": {"name": tc.function.name, "arguments": tc.function.arguments}} for tc in tool_calls]})
                 
@@ -1381,13 +1389,21 @@ Antworte auf Deutsch."""
                         
                         messages.append({"role": "tool", "tool_call_id": tc.id, "content": result["output"]})
                         
-                        if not result["continue"]:
+                        # Only stop on specific conditions
+                        if result["ask_user"]:
+                            # Critical question - stop and wait for user
                             should_continue = False
-                            if result["ask_user"]:
-                                yield f"data: {json.dumps({'ask_user': True, 'question': result['output']})}\n\n"
-                            if result["complete"]:
-                                yield f"data: {json.dumps({'complete': True})}\n\n"
+                            yield f"data: {json.dumps({'ask_user': True, 'question': result['output'], 'critical': True})}\n\n"
                             break
+                        
+                        if result["complete"]:
+                            # Project complete
+                            should_continue = False
+                            yield f"data: {json.dumps({'complete': True})}\n\n"
+                            break
+                        
+                        # Otherwise continue even if result["continue"] is False
+                        # Let the agent work through all phases
                         
                     except json.JSONDecodeError:
                         messages.append({"role": "tool", "tool_call_id": tc.id, "content": "JSON Parse Error"})
