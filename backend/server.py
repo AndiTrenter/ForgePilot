@@ -740,8 +740,8 @@ async def install_update(target_version: str = None):
             "message": "Automatisches Update nicht möglich. Bitte manuell ausführen.",
             "triggered": False,
             "instructions": {
-                "step1": "cd /pfad/zu/forgepilot",
-                "step2": "./update.sh"
+                "step1": "cd /app",
+                "step2": "bash /app/update.sh"
             },
             "current_version": APP_VERSION,
             "target_version": version
@@ -771,8 +771,8 @@ async def rollback_update():
         "instructions": {
             "step1": f"docker pull ghcr.io/anditrenter/forgepilot/forgepilot-backend:v{previous_version}",
             "step2": f"docker pull ghcr.io/anditrenter/forgepilot/forgepilot-frontend:v{previous_version}",
-            "step3": "docker-compose -f docker-compose.unraid.yml down",
-            "step4": "docker-compose -f docker-compose.unraid.yml up -d",
+            "step3": "cd /app && docker-compose -f /app/docker-compose.unraid.yml down",
+            "step4": "cd /app && docker-compose -f /app/docker-compose.unraid.yml up -d",
         },
         "current_version": APP_VERSION,
         "rollback_version": previous_version
@@ -1230,11 +1230,20 @@ PHASE 2: CODER AGENT
 - Keine Platzhalter, keine TODOs, keine Kommentare wie "hier Code einfügen"
 - MASTER CHECK nach JEDER Datei: Ist der Code vollständig und korrekt?
 
-PHASE 3: TESTER AGENT
+PHASE 3: TESTER AGENT (STRIKT WIE EIN ECHTER USER!)
 - Führe test_code mit type="syntax" für alle Dateien aus
 - Führe test_code mit type="run" aus
-- Bei Spielen: Führe verify_game aus
-- MASTER CHECK: Sind alle Tests bestanden?
+- KRITISCH: Öffne die index.html VISUELL im Browser/Preview
+  → Ist SOFORT etwas sichtbar? (Farben, Formen, Text, UI-Elemente)
+  → Ist der Screen NICHT weiß/leer/blank?
+  → Funktionieren Buttons und Interaktionen?
+  → Gibt es Console-Fehler (F12)?
+- Teste wie ein ECHTER USER:
+  → Klicke auf alle wichtigen Buttons
+  → Prüfe ob die App reagiert
+  → Teste die Hauptfunktionen
+- Bei Spielen: Führe verify_game aus UND spiele manuell 10 Sekunden
+- MASTER CHECK: Sind alle Tests bestanden UND ist die UI wirklich sichtbar?
 
 PHASE 4: REVIEWER AGENT
 - Lies JEDE erstellte Datei mit read_file
