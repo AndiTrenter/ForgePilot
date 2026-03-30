@@ -491,19 +491,168 @@ const ChatMessage = ({ message }) => {
   );
 };
 
-const LogEntry = ({ log }) => {
-  const levelColors = { info: "text-zinc-400", success: "text-emerald-400", warning: "text-amber-400", error: "text-rose-400" };
-  const levelIcons = { info: "○", success: "✓", warning: "⚠", error: "✕" };
+const LogEntry = ({ log, onClick }) => {
+  const levelColors = { 
+    info: "text-zinc-400 border-zinc-700", 
+    success: "text-emerald-400 border-emerald-500/30", 
+    warning: "text-amber-400 border-amber-500/30", 
+    error: "text-rose-400 border-rose-500/30" 
+  };
+  const levelIcons = { info: "ℹ️", success: "✓", warning: "⚠", error: "✕" };
+  
+  const agentIcons = {
+    orchestrator: "⚡",
+    planner: "📋",
+    coder: "💻",
+    reviewer: "👁️",
+    tester: "🧪",
+    debugger: "🐛",
+    git: "📦",
+    system: "⚙️"
+  };
+  
+  const icon = agentIcons[log.source] || levelIcons[log.level] || "○";
+  const color = levelColors[log.level] || "text-zinc-400 border-zinc-700";
+  
+  // Truncate message if too long
+  const displayMessage = log.message?.length > 60 
+    ? log.message.substring(0, 60) + "..." 
+    : log.message;
 
   return (
-    <div className={`flex gap-2 text-xs ${levelColors[log.level]}`}>
-      <span className="text-zinc-600 shrink-0">{new Date(log.timestamp).toLocaleTimeString()}</span>
-      <span className="shrink-0">{levelIcons[log.level]}</span>
-      <span className="text-zinc-500 shrink-0">[{log.source}]</span>
-      <span className="break-all">{log.message}</span>
+    <button
+      onClick={() => onClick && onClick(log)}
+      className={`w-full text-left flex gap-2 text-xs ${color} px-2 py-1.5 rounded border bg-zinc-900/30 hover:bg-zinc-800/50 transition-colors cursor-pointer group`}
+      title="Klicken für Details"
+    >
+      <span className="text-zinc-600 shrink-0">{new Date(log.timestamp).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+      <span className="shrink-0">{icon}</span>
+      <span className="text-zinc-500 shrink-0 font-medium">[{log.source}]</span>
+      <span className="break-all flex-1 group-hover:text-white transition-colors">{displayMessage}</span>
+      {log.message?.length > 60 && (
+        <ChevronRight size={12} className="shrink-0 text-zinc-600 group-hover:text-zinc-400 transition-colors mt-0.5" />
+      )}
+    </button>
+  );
+};
+
+// ============== LOG DETAIL MODAL ==============
+
+const LogDetailModal = ({ log, onClose }) => {
+  if (!log) return null;
+  
+  const levelColors = {
+    info: "bg-blue-500/10 border-blue-500/30 text-blue-300",
+    success: "bg-emerald-500/10 border-emerald-500/30 text-emerald-300",
+    warning: "bg-amber-500/10 border-amber-500/30 text-amber-300",
+    error: "bg-rose-500/10 border-rose-500/30 text-rose-300"
+  };
+  
+  const agentIcons = {
+    orchestrator: "⚡",
+    planner: "📋",
+    coder: "💻",
+    reviewer: "👁️",
+    tester: "🧪",
+    debugger: "🐛",
+    git: "📦",
+    system: "⚙️"
+  };
+  
+  const icon = agentIcons[log.source] || "📌";
+  const bgColor = levelColors[log.level] || "bg-zinc-800 border-zinc-700 text-zinc-300";
+  
+  return (
+    <div 
+      className="fixed inset-0 bg-black/80 flex items-center justify-center z-[300] p-4"
+      onClick={onClose}
+    >
+      <div 
+        className="bg-zinc-900 border border-zinc-700 rounded-lg w-full max-w-2xl shadow-2xl max-h-[80vh] overflow-hidden flex flex-col"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="p-4 border-b border-zinc-800 flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-3">
+            <span className="text-2xl">{icon}</span>
+            <div>
+              <h3 className="text-lg font-medium text-white capitalize">
+                {log.source || 'System'} Log
+              </h3>
+              <p className="text-xs text-zinc-500">
+                {new Date(log.timestamp).toLocaleString('de-DE')}
+              </p>
+            </div>
+          </div>
+          <button 
+            onClick={onClose}
+            className="text-zinc-400 hover:text-white transition-colors"
+          >
+            <X size={20} />
+          </button>
+        </div>
+        
+        {/* Content */}
+        <div className="p-4 overflow-y-auto flex-1">
+          {/* Log Level Badge */}
+          <div className="mb-4">
+            <span className={`px-3 py-1.5 rounded-full text-xs font-medium border ${bgColor}`}>
+              {log.level.toUpperCase()}
+            </span>
+          </div>
+          
+          {/* Message */}
+          <div className="mb-4">
+            <h4 className="text-sm font-semibold text-zinc-400 mb-2">Nachricht:</h4>
+            <div className="bg-zinc-950 border border-zinc-800 rounded p-3 text-sm text-zinc-200 whitespace-pre-wrap break-words">
+              {log.message}
+            </div>
+          </div>
+          
+          {/* Additional Details */}
+          {log.details && (
+            <div className="mb-4">
+              <h4 className="text-sm font-semibold text-zinc-400 mb-2">Details:</h4>
+              <div className="bg-zinc-950 border border-zinc-800 rounded p-3 text-sm text-zinc-300 whitespace-pre-wrap break-words font-mono">
+                {typeof log.details === 'string' ? log.details : JSON.stringify(log.details, null, 2)}
+              </div>
+            </div>
+          )}
+          
+          {/* Metadata */}
+          <div className="grid grid-cols-2 gap-3 text-xs">
+            <div className="bg-zinc-950 border border-zinc-800 rounded p-2">
+              <span className="text-zinc-500">Quelle:</span>
+              <span className="text-zinc-300 ml-2 font-medium">{log.source}</span>
+            </div>
+            <div className="bg-zinc-950 border border-zinc-800 rounded p-2">
+              <span className="text-zinc-500">Level:</span>
+              <span className="text-zinc-300 ml-2 font-medium">{log.level}</span>
+            </div>
+            <div className="bg-zinc-950 border border-zinc-800 rounded p-2 col-span-2">
+              <span className="text-zinc-500">Timestamp:</span>
+              <span className="text-zinc-300 ml-2 font-mono">
+                {new Date(log.timestamp).toISOString()}
+              </span>
+            </div>
+          </div>
+        </div>
+        
+        {/* Footer */}
+        <div className="p-4 border-t border-zinc-800 flex justify-end shrink-0">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded transition-colors"
+          >
+            Schließen
+          </button>
+        </div>
+      </div>
     </div>
   );
 };
+
+// ============== ROADMAP VIEW ==============
 
 const RoadmapView = ({ items }) => {
   const statusIcons = {
@@ -1807,6 +1956,8 @@ const Workspace = () => {
   // File Upload State
   const [uploadedFiles, setUploadedFiles] = useState([]);
   const fileInputRef = useRef(null);
+  // Log Detail State
+  const [selectedLog, setSelectedLog] = useState(null);
   // Voice Input State
   const [isListening, setIsListening] = useState(false);
   const [speechSupported, setSpeechSupported] = useState(false);
@@ -2891,7 +3042,7 @@ const Workspace = () => {
                       <p className="text-sm">Noch keine Logs</p>
                     </div>
                   ) : (
-                    <div className="space-y-1">{logs.map((log) => <LogEntry key={log.id} log={log} />)}</div>
+                    <div className="space-y-1">{logs.map((log) => <LogEntry key={log.id} log={log} onClick={(log) => setSelectedLog(log)} />)}</div>
                   )}
                 </div>
               </div>
@@ -2922,6 +3073,14 @@ const Workspace = () => {
           projectId={projectId}
           projectName={project?.name || 'Unbekannt'}
           onClose={() => setShowDeployModal(false)}
+        />
+      )}
+      
+      {/* Log Detail Modal */}
+      {selectedLog && (
+        <LogDetailModal
+          log={selectedLog}
+          onClose={() => setSelectedLog(null)}
         />
       )}
     </div>
