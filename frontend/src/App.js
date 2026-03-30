@@ -9,8 +9,9 @@ import {
   Folder, File, ChevronDown, Save, LayoutPanelLeft, GitCommit,
   Check, Circle, ArrowRight, Lock, Globe, Upload, Search,
   ExternalLink, Mic, MicOff, Square, PanelRightClose, PanelRightOpen,
-  Maximize2, Minimize2
+  Maximize2, Minimize2, Rocket
 } from "lucide-react";
+import DeployModal from "./DeployModal";
 import Prism from 'prismjs';
 import 'prismjs/themes/prism-tomorrow.css';
 import 'prismjs/components/prism-javascript';
@@ -184,7 +185,7 @@ const AgentActivityItem = ({ activity }) => {
 
 // ============== Project Summary Component ==============
 
-const ProjectSummary = ({ previewInfo, onPush, isPushing }) => {
+const ProjectSummary = ({ previewInfo, onPush, isPushing, onDeploy, isDeploying }) => {
   if (!previewInfo?.ready_for_push) return null;
   
   return (
@@ -222,6 +223,14 @@ const ProjectSummary = ({ previewInfo, onPush, isPushing }) => {
             >
               {isPushing ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
               Jetzt zu GitHub pushen
+            </button>
+            <button 
+              onClick={onDeploy}
+              disabled={isDeploying}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-medium rounded-md transition-colors disabled:opacity-50"
+            >
+              {isDeploying ? <Loader2 size={16} className="animate-spin" /> : <Rocket size={16} />}
+              {isDeploying ? 'Starte Deploy...' : 'Deploy starten'}
             </button>
             <button className="flex items-center gap-2 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded-md transition-colors">
               <ExternalLink size={16} />
@@ -1760,6 +1769,9 @@ const Workspace = () => {
   const [showUpdateInstructions, setShowUpdateInstructions] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
   const [updateMessage, setUpdateMessage] = useState(null);
+  // Deploy Modal State
+  const [showDeployModal, setShowDeployModal] = useState(false);
+  const [isDeploying, setIsDeploying] = useState(false);
   // Voice Input State
   const [isListening, setIsListening] = useState(false);
   const [speechSupported, setSpeechSupported] = useState(false);
@@ -1877,6 +1889,21 @@ const Workspace = () => {
       setShowUpdateInstructions(true);
     } finally {
       setIsUpdating(false);
+    }
+  };
+
+  const startDeployment = async () => {
+    setIsDeploying(true);
+    try {
+      const res = await axios.post(`${API}/projects/${projectId}/deploy/start`);
+      if (res.data.success) {
+        setShowDeployModal(true);
+      }
+    } catch (error) {
+      console.error('Deploy start failed:', error);
+      alert('Deployment konnte nicht gestartet werden: ' + (error.response?.data?.detail || error.message));
+    } finally {
+      setIsDeploying(false);
     }
   };
 
@@ -2550,7 +2577,13 @@ const Workspace = () => {
           {/* Project Summary when ready for push */}
           {previewInfo?.ready_for_push && (
             <div className="p-3 border-b border-zinc-800 shrink-0">
-              <ProjectSummary previewInfo={previewInfo} onPush={handlePush} isPushing={isPushing} />
+              <ProjectSummary 
+                previewInfo={previewInfo} 
+                onPush={handlePush} 
+                isPushing={isPushing}
+                onDeploy={startDeployment}
+                isDeploying={isDeploying}
+              />
             </div>
           )}
 
@@ -2770,6 +2803,15 @@ const Workspace = () => {
           isOpen={showSettings} 
           onClose={() => setShowSettings(false)}
           onRefreshLLMStatus={checkOllamaStatus}
+        />
+      )}
+
+      {/* Deploy Modal */}
+      {showDeployModal && (
+        <DeployModal
+          projectId={projectId}
+          projectName={project?.name || 'Unbekannt'}
+          onClose={() => setShowDeployModal(false)}
         />
       )}
     </div>
