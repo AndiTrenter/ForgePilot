@@ -78,6 +78,12 @@ const DeployModal = ({ projectId, projectName, onClose }) => {
   
   const startScreenSharing = async () => {
     try {
+      // Check if API is available
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+        alert('Screen-Sharing wird von diesem Browser nicht unterstützt. Bitte verwende Chrome, Edge oder Firefox.');
+        return;
+      }
+      
       // Request screen capture
       const stream = await navigator.mediaDevices.getDisplayMedia({
         video: {
@@ -109,7 +115,24 @@ const DeployModal = ({ projectId, projectName, onClose }) => {
       
     } catch (e) {
       console.error('Screen sharing failed:', e);
-      alert('Screen-Sharing konnte nicht gestartet werden. Bitte Browser-Berechtigungen prüfen.');
+      
+      let errorMsg = 'Screen-Sharing konnte nicht gestartet werden.\n\n';
+      
+      if (e.name === 'NotAllowedError') {
+        errorMsg += '❌ Berechtigung verweigert.\n\n' +
+                   '💡 Lösung:\n' +
+                   '1. Klicke erneut auf "Screen-Sharing starten"\n' +
+                   '2. Wähle dein Browser-Fenster oder Bildschirm\n' +
+                   '3. Klicke auf "Teilen"';
+      } else if (e.name === 'NotSupportedError') {
+        errorMsg += '❌ Dein Browser unterstützt kein Screen-Sharing.\n\n' +
+                   '💡 Empfehlung: Verwende Chrome, Edge oder Firefox.';
+      } else {
+        errorMsg += `❌ Fehler: ${e.message}\n\n` +
+                   '💡 Versuche es erneut oder lade Screenshots manuell hoch.';
+      }
+      
+      alert(errorMsg);
     }
   };
   

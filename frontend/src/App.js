@@ -248,11 +248,40 @@ const ProjectSummary = ({ previewInfo, onPush, isPushing, onDeploy, isDeploying 
   );
 };
 
-const AgentStatusPill = ({ agent, isProjectComplete }) => {
+const AgentStatusPill = ({ agent, isProjectComplete, allAgents }) => {
+  // Bestimme den tatsächlichen Status basierend auf Logik
+  const getActualStatus = () => {
+    // Wenn Projekt komplett: Alle grün
+    if (isProjectComplete) {
+      return 'completed';
+    }
+    
+    // Orchestrator bleibt "running" solange IRGENDEIN anderer Agent läuft
+    if (agent.agent_type === 'orchestrator' && allAgents) {
+      const anyAgentRunning = allAgents.some(a => 
+        a.agent_type !== 'orchestrator' && a.status === 'running'
+      );
+      if (anyAgentRunning) {
+        return 'running';
+      }
+      // Wenn alle anderen completed → Orchestrator auch completed
+      const allOthersCompleted = allAgents
+        .filter(a => a.agent_type !== 'orchestrator')
+        .every(a => a.status === 'completed');
+      if (allOthersCompleted) {
+        return 'completed';
+      }
+    }
+    
+    return agent.status;
+  };
+  
+  const actualStatus = getActualStatus();
+  
   const statusColors = {
-    idle: "bg-zinc-700",
-    running: "bg-blue-500 animate-pulse",
-    completed: "bg-emerald-500",
+    idle: "bg-blue-500",  // Blau: noch nichts getan
+    running: "bg-red-500 animate-pulse",  // Rot pulsierend: arbeitet
+    completed: "bg-emerald-500",  // Grün: fertig
     error: "bg-rose-500",
   };
   
@@ -277,21 +306,19 @@ const AgentStatusPill = ({ agent, isProjectComplete }) => {
   };
   const Icon = icons[agent.agent_type] || Zap;
   
-  // Wenn Projekt fertig ist, zeige alle Agenten als "completed"
-  const effectiveStatus = isProjectComplete ? "completed" : agent.status;
+  const statusText = {
+    idle: "Bereit",
+    running: agent.current_task || "Arbeitet...",
+    completed: "Abgeschlossen",
+    error: "Fehler",
+  };
 
   return (
-    <Tooltip text={agentDescriptions[agent.agent_type] || "Agent"} position="bottom">
-      <div 
-        className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-zinc-900 border transition-all duration-300 cursor-help ${
-          effectiveStatus === "running" ? "border-blue-500/50 shadow-lg shadow-blue-500/20" : 
-          effectiveStatus === "completed" ? "border-emerald-500/50" : "border-zinc-800"
-        }`}
-        data-testid={`agent-status-${agent.agent_type}`}
-      >
-        <div className={`w-2 h-2 rounded-full ${statusColors[effectiveStatus]}`} />
-        <Icon size={14} className={effectiveStatus === "completed" ? "text-emerald-400" : "text-zinc-400"} />
-        <span className={`text-sm capitalize ${effectiveStatus === "completed" ? "text-emerald-300" : "text-zinc-300"}`}>{agent.agent_type}</span>
+    <Tooltip text={agentDescriptions[agent.agent_type] || agent.agent_type} position="bottom">
+      <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full ${statusColors[actualStatus]} text-white text-xs font-medium transition-all cursor-pointer`}>
+        <div className={`w-1.5 h-1.5 rounded-full bg-white ${actualStatus === 'running' ? 'animate-pulse' : ''}`} />
+        <Icon size={14} />
+        <span className="capitalize">{agent.agent_type === 'orchestrator' ? 'Orchestrator' : agent.agent_type}</span>
       </div>
     </Tooltip>
   );
@@ -2578,7 +2605,7 @@ const Workspace = () => {
           <div className="p-3 border-b border-zinc-800 bg-zinc-900/30 shrink-0" data-testid="agent-timeline">
             <h3 className="text-xs font-semibold uppercase tracking-widest text-zinc-500 mb-2">Agent Status</h3>
             <div className="flex flex-wrap gap-1.5">
-              {agents.map((agent) => <AgentStatusPill key={agent.agent_type} agent={agent} isProjectComplete={previewInfo?.ready_for_push} />)}
+              {agents.map((agent) => <AgentStatusPill key={agent.agent_type} agent={agent} isProjectComplete={previewInfo?.ready_for_push} allAgents={agents} />)}
             </div>
           </div>
 
