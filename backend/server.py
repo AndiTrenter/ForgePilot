@@ -1266,8 +1266,8 @@ async def execute_tool(tool_name: str, arguments: dict, workspace_path: Path, pr
 
 # ============== AUTONOMOUS AGENT LOOP ==============
 
-async def run_autonomous_agent(project_id: str, workspace_path: Path, initial_messages: list, max_iterations: int = 100):
-    """Run the agent autonomously until complete or needs user input"""
+async def run_autonomous_agent(project_id: str, workspace_path: Path, initial_messages: list, max_iterations: int = 200):
+    """Run agent EXACTLY like E1 at app.emergent.sh - NEVER stop without reason!"""
     
     files_context = "\n".join([str(f.relative_to(workspace_path)) for f in workspace_path.rglob("*") if f.is_file() and not any(p in str(f) for p in ['.git', 'node_modules'])][:30])
     
@@ -1576,8 +1576,17 @@ Antworte auf Deutsch."""
     active_provider = get_active_llm_provider()
     logger.info(f"Using LLM provider: {active_provider}")
     
-    while should_continue and iteration < max_iterations:
+    while should_continue:
         iteration += 1
+        
+        # Safety valve - but with warning, not hard stop
+        if iteration > max_iterations:
+            yield f"data: {json.dumps({'warning': f'Iteration {iteration} erreicht - prüfe ob wirklich fertig', 'iteration': iteration})}\n\n"
+            # Don't stop immediately - give agent chance to finish
+            if iteration > max_iterations + 20:
+                yield f"data: {json.dumps({'error': 'Max iterations (200+20) erreicht - Force Stop', 'iteration': iteration})}\n\n"
+                should_continue = False
+                break
         
         try:
             if active_provider == "ollama" and ollama_available:
@@ -1591,11 +1600,11 @@ Antworte auf Deutsch."""
                     if openai_client:
                         active_provider = "openai"
                         yield f"data: {json.dumps({'warning': 'Ollama fehlgeschlagen, nutze OpenAI', 'provider': 'openai'})}\n\n"
+                        # DON'T set should_continue = False! Just switch provider and continue!
                     else:
                         yield f"data: {json.dumps({'error': 'Kein LLM verfügbar'})}\n\n"
                         should_continue = False
                         break
-                should_continue = False  # Ollama doesn't support tool calling in same way
             else:
                 # Use OpenAI
                 if not openai_client:
@@ -1668,25 +1677,52 @@ Antworte auf Deutsch."""
                         logger.error(f"Tool execution error: {e}")
                         messages.append({"role": "tool", "tool_call_id": tc.id, "content": f"Tool Error: {str(e)}"})
                 
-                # If no tool calls and not stopping, force agent to continue
-                if not tool_calls and not stop_this_iteration and content:
-                    # Agent is just thinking/planning - add a prompt to continue
-                    messages.append({
-                        "role": "user", 
-                        "content": "Fahre fort mit der Arbeit. Nutze Tools um weiterzumachen. STOPPE NICHT!"
-                    })
+                # If no tool calls and not stopping, FORCE agent to continue (like E1!)
+                if not tool_calls and not stop_this_iteration:
+                    # E1 STRATEGY: Add thinking prompt to force continuation
+                    if content:
+                        # Agent provided content but no tools - nudge it to take action
+                        messages.append({
+                            "role": "user", 
+                            "content": """Du hast nachgedacht, aber keine Tools genutzt. 
+
+JETZT HANDELN! Nutze Tools um fortzufahren:
+- Erstelle Dateien (create_file)
+- Teste Code (test_code)  
+- Lese Dateien (read_file)
+- Suche im Web (web_search)
+- Stelle Fragen (ask_user) wenn unklar
+
+STOPPE NICHT! Arbeite weiter bis mark_complete!"""
+                        })
+                    else:
+                        # No content and no tools - something is wrong
+                        messages.append({
+                            "role": "user",
+                            "content": "FEHLER: Keine Antwort und keine Tools! Bitte fortfahren mit der Arbeit!"
+                        })
+                    
+                    # DON'T stop - loop will continue
+                    continue
             
             await asyncio.sleep(0.5)
             
         except Exception as e:
-            logger.error(f"Agent loop error: {e}")
-            yield f"data: {json.dumps({'error': str(e)})}\n\n"
-            should_continue = False
+            logger.error(f"Error in autonomous agent loop (iteration {iteration}): {e}")
+            yield f"data: {json.dumps({'error': f'Agent Error: {str(e)}', 'iteration': iteration})}\n\n"
+            
+            # E1 STRATEGY: Don't stop on error - try to recover!
+            messages.append({
+                "role": "user",
+                "content": f"FEHLER aufgetreten: {str(e)}\n\nBitte analysiere den Fehler und fahre fort! Nutze debug_error wenn nötig."
+            })
+            # Continue loop to let agent recover
     
-    if iteration >= max_iterations:
-        yield f"data: {json.dumps({'warning': 'Max iterations erreicht'})}\n\n"
-    
-    yield f"data: {json.dumps({'done': True, 'iterations': iteration})}\n\n"
+    # Final summary
+    if iteration >= max_iterations + 20:
+        yield f"data: {json.dumps({'done': True, 'iterations': iteration, 'status': 'max_iterations_reached'})}\n\n"
+    else:
+        yield f"data: {json.dumps({'done': True, 'iterations': iteration, 'status': 'completed'})}\n\n"
 
 # ============== PROJECTS ==============
 
