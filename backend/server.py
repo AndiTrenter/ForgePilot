@@ -1247,7 +1247,7 @@ async def execute_tool(tool_name: str, arguments: dict, workspace_path: Path, pr
 
 # ============== AUTONOMOUS AGENT LOOP ==============
 
-async def run_autonomous_agent(project_id: str, workspace_path: Path, initial_messages: list, max_iterations: int = 50):
+async def run_autonomous_agent(project_id: str, workspace_path: Path, initial_messages: list, max_iterations: int = 100):
     """Run the agent autonomously until complete or needs user input"""
     
     files_context = "\n".join([str(f.relative_to(workspace_path)) for f in workspace_path.rglob("*") if f.is_file() and not any(p in str(f) for p in ['.git', 'node_modules'])][:30])
@@ -1480,13 +1480,17 @@ Antworte auf Deutsch."""
                 if content:
                     yield f"data: {json.dumps({'content': content, 'iteration': iteration, 'provider': 'openai'})}\n\n"
                 
-                # Continue if there are tool calls, don't stop after every response
-                if not tool_calls:
-                    # Only stop if no more tool calls (agent is done or thinking)
-                    # Let it continue unless it explicitly says it's done
-                    pass  # Don't set should_continue = False here
+                # CRITICAL: NEVER stop just because there are no tool calls!
+                # The agent might be thinking or planning - let it continue!
+                # We ONLY stop on:
+                # 1. ask_user (critical question)
+                # 2. mark_complete (project finished)
+                # 3. max_iterations reached
                 
                 messages.append({"role": "assistant", "content": content, "tool_calls": [{"id": tc.id, "type": "function", "function": {"name": tc.function.name, "arguments": tc.function.arguments}} for tc in tool_calls]})
+                
+                # Track if we should continue in THIS iteration
+                stop_this_iteration = False
                 
                 for tc in tool_calls:
                     try:
@@ -1501,24 +1505,38 @@ Antworte auf Deutsch."""
                         
                         messages.append({"role": "tool", "tool_call_id": tc.id, "content": result["output"]})
                         
-                        # Only stop on specific conditions
-                        if result["ask_user"]:
+                        # Only stop on CRITICAL conditions
+                        if result.get("ask_user"):
                             # Critical question - stop and wait for user
                             should_continue = False
+                            stop_this_iteration = True
                             yield f"data: {json.dumps({'ask_user': True, 'question': result['output'], 'critical': True})}\n\n"
                             break
                         
-                        if result["complete"]:
-                            # Project complete
+                        if result.get("complete"):
+                            # Project complete - stop gracefully
                             should_continue = False
+                            stop_this_iteration = True
                             yield f"data: {json.dumps({'complete': True})}\n\n"
                             break
                         
-                        # Otherwise continue even if result["continue"] is False
-                        # Let the agent work through all phases
+                        # OTHERWISE: ALWAYS CONTINUE!
+                        # Ignore result["continue"] - agent decides when to stop
                         
-                    except json.JSONDecodeError:
-                        messages.append({"role": "tool", "tool_call_id": tc.id, "content": "JSON Parse Error"})
+                    except json.JSONDecodeError as e:
+                        logger.error(f"JSON decode error: {e}")
+                        messages.append({"role": "tool", "tool_call_id": tc.id, "content": f"JSON Parse Error: {str(e)}"})
+                    except Exception as e:
+                        logger.error(f"Tool execution error: {e}")
+                        messages.append({"role": "tool", "tool_call_id": tc.id, "content": f"Tool Error: {str(e)}"})
+                
+                # If no tool calls and not stopping, force agent to continue
+                if not tool_calls and not stop_this_iteration and content:
+                    # Agent is just thinking/planning - add a prompt to continue
+                    messages.append({
+                        "role": "user", 
+                        "content": "Fahre fort mit der Arbeit. Nutze Tools um weiterzumachen. STOPPE NICHT!"
+                    })
             
             await asyncio.sleep(0.5)
             
