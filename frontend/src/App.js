@@ -2488,6 +2488,26 @@ const Workspace = () => {
               if (data.ask_user) {
                 setAgentProgress(prev => ({ ...prev, isAutonomous: false, currentTool: "ask_user" }));
                 addActivity('orchestrator', 'handoff', 'Wartet auf Benutzer-Eingabe', 'Agent hat eine Frage');
+                
+                // CRITICAL: Add question as AI message in chat!
+                const questionText = data.question || data.content || 'Agent hat eine Frage';
+                setMessages(prev => [
+                  ...prev,
+                  {
+                    id: Date.now(),
+                    role: 'assistant',
+                    content: `❓ **FRAGE VOM AGENT:**\n\n${questionText}\n\n_Bitte beantworten Sie die Frage im Chat-Feld._`,
+                    timestamp: new Date().toISOString()
+                  }
+                ]);
+                
+                // Scroll to bottom to show question
+                setTimeout(() => {
+                  const chatContainer = document.querySelector('.overflow-y-auto');
+                  if (chatContainer) {
+                    chatContainer.scrollTop = chatContainer.scrollHeight;
+                  }
+                }, 100);
               }
               if (data.complete) {
                 setAgentProgress(prev => ({ ...prev, isAutonomous: false, currentTool: "complete" }));
