@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
+import sys
 import logging
 from pathlib import Path
 from pydantic import BaseModel, Field, ConfigDict
@@ -877,14 +878,15 @@ AGENT_TOOLS = [
     {"type": "function", "function": {"name": "run_command", "description": "Run shell command (npm, pip, python, node)", "parameters": {"type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"]}}},
     {"type": "function", "function": {"name": "setup_docker_service", "description": "Setup Docker service (MongoDB, PostgreSQL, Redis, MySQL, etc.) via docker-compose. Creates docker-compose.yml with the service.", "parameters": {"type": "object", "properties": {"service_type": {"type": "string", "enum": ["mongodb", "postgresql", "mysql", "redis", "elasticsearch", "rabbitmq", "custom"], "description": "Type of service to setup"}, "service_name": {"type": "string", "description": "Name for the service container"}, "port": {"type": "integer", "description": "Port to expose (optional)"}, "custom_config": {"type": "object", "description": "Custom docker-compose config for service (optional)"}}, "required": ["service_type", "service_name"]}}},
     {"type": "function", "function": {"name": "install_package", "description": "Install npm or pip package in the project", "parameters": {"type": "object", "properties": {"package_manager": {"type": "string", "enum": ["npm", "pip", "yarn"], "description": "Package manager to use"}, "package_name": {"type": "string", "description": "Package name to install"}, "save_dev": {"type": "boolean", "default": False, "description": "Save as dev dependency (npm only)"}}, "required": ["package_manager", "package_name"]}}},
+    {"type": "function", "function": {"name": "browser_test", "description": "CRITICAL: Test app in browser like a real user. MUST be called before mark_complete! Opens preview, fills forms, clicks buttons, validates functionality.", "parameters": {"type": "object", "properties": {"test_scenarios": {"type": "array", "items": {"type": "string"}, "description": "List of scenarios to test (e.g., 'Fill contact form and submit', 'Click all navigation links', 'Test recipe search')"}, "preview_url": {"type": "string", "description": "URL to test (default: uses project preview)"}}, "required": ["test_scenarios"]}}},
     {"type": "function", "function": {"name": "create_roadmap", "description": "Create a roadmap item", "parameters": {"type": "object", "properties": {"title": {"type": "string"}, "description": {"type": "string"}}, "required": ["title", "description"]}}},
     {"type": "function", "function": {"name": "update_roadmap_status", "description": "Update roadmap item status", "parameters": {"type": "object", "properties": {"title": {"type": "string"}, "status": {"type": "string", "enum": ["pending", "in_progress", "completed"]}}, "required": ["title", "status"]}}},
     {"type": "function", "function": {"name": "web_search", "description": "Search web for best practices and examples", "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "max_results": {"type": "integer", "default": 5}}, "required": ["query"]}}},
     {"type": "function", "function": {"name": "test_code", "description": "Test the current code by running it or checking for errors", "parameters": {"type": "object", "properties": {"test_type": {"type": "string", "enum": ["syntax", "run", "lint", "completeness"]}, "file_path": {"type": "string"}}, "required": ["test_type"]}}},
     {"type": "function", "function": {"name": "verify_game", "description": "Verify that a game is complete and playable. MUST be called before mark_complete for any game project.", "parameters": {"type": "object", "properties": {"game_type": {"type": "string", "description": "Type of game (e.g., tetris, snake, pong)"}}, "required": ["game_type"]}}},
     {"type": "function", "function": {"name": "debug_error", "description": "Analyze and fix an error", "parameters": {"type": "object", "properties": {"error_message": {"type": "string"}, "file_path": {"type": "string"}}, "required": ["error_message"]}}},
-    {"type": "function", "function": {"name": "ask_user", "description": "Ask user a question when clarification is needed", "parameters": {"type": "object", "properties": {"question": {"type": "string"}}, "required": ["question"]}}},
-    {"type": "function", "function": {"name": "mark_complete", "description": "Mark project as complete and ready for push", "parameters": {"type": "object", "properties": {"summary": {"type": "string"}, "tested_features": {"type": "array", "items": {"type": "string"}}}, "required": ["summary", "tested_features"]}}}
+    {"type": "function", "function": {"name": "ask_user", "description": "Ask user ONLY when truly needed. DO NOT ask about technology choices (DB, framework) - choose the best yourself!", "parameters": {"type": "object", "properties": {"question": {"type": "string"}}, "required": ["question"]}}},
+    {"type": "function", "function": {"name": "mark_complete", "description": "Mark project as complete. MUST call browser_test BEFORE this!", "parameters": {"type": "object", "properties": {"summary": {"type": "string"}, "tested_features": {"type": "array", "items": {"type": "string"}}}, "required": ["summary", "tested_features"]}}}
 ]
 
 async def call_ollama(messages: list, model: str = None) -> str:
@@ -1320,6 +1322,240 @@ async def execute_tool(tool_name: str, arguments: dict, workspace_path: Path, pr
             await update_agent(project_id, "tester", "completed", "Verifikation abgeschlossen")
             await add_log(project_id, "info" if not issues else "warning", f"Spiel-Verifikation: {len(checks_passed)} OK, {len(issues)} Probleme", "tester")
         
+        elif tool_name == "browser_test":
+            test_scenarios = arguments.get("test_scenarios", [])
+            preview_url = arguments.get("preview_url", "")
+            
+            await update_agent(project_id, "tester", "running", "🌐 Browser-Test läuft...")
+            await add_log(project_id, "info", f"🌐 Browser-Test startet: {len(test_scenarios)} Szenarien", "tester")
+            
+            # Create test script
+            test_script = f"""
+import asyncio
+import json
+import sys
+from playwright.async_api import async_playwright
+
+async def run_browser_test():
+    test_results = {{
+        "passed": [],
+        "failed": [],
+        "screenshots": []
+    }}
+    
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        page = await browser.new_page()
+        
+        # Enable console logging
+        page.on("console", lambda msg: print(f"BROWSER: {{msg.text}}"))
+        page.on("pageerror", lambda err: print(f"ERROR: {{err}}"))
+        
+        try:
+            # Navigate to preview
+            preview_url = "{preview_url}" or "http://localhost:3000/preview/{project_id}"
+            await page.goto(preview_url, wait_until="networkidle", timeout=15000)
+            await page.wait_for_timeout(2000)
+            
+            # Take initial screenshot
+            await page.screenshot(path="/tmp/browser_test_initial.png")
+            test_results["screenshots"].append("/tmp/browser_test_initial.png")
+            
+            # Check if page is not blank
+            body_content = await page.inner_text("body")
+            if len(body_content.strip()) > 10:
+                test_results["passed"].append("✓ Seite ist nicht leer")
+            else:
+                test_results["failed"].append("✗ Seite scheint leer zu sein")
+            
+            # Run test scenarios
+            scenarios = {json.dumps(test_scenarios)}
+            
+            for i, scenario in enumerate(scenarios):
+                scenario_lower = scenario.lower()
+                
+                try:
+                    # Scenario: Fill form
+                    if "form" in scenario_lower or "formular" in scenario_lower:
+                        # Find all input fields
+                        inputs = await page.query_selector_all("input:not([type='hidden'])")
+                        textareas = await page.query_selector_all("textarea")
+                        
+                        filled_count = 0
+                        for inp in inputs:
+                            input_type = await inp.get_attribute("type") or "text"
+                            name = await inp.get_attribute("name") or f"field_{{filled_count}}"
+                            
+                            if input_type in ["text", "email", "tel", "url", "search"]:
+                                await inp.fill("Test Input")
+                                filled_count += 1
+                            elif input_type == "number":
+                                await inp.fill("42")
+                                filled_count += 1
+                            elif input_type == "date":
+                                await inp.fill("2024-12-31")
+                                filled_count += 1
+                        
+                        for textarea in textareas:
+                            await textarea.fill("Test Textarea Content")
+                            filled_count += 1
+                        
+                        if filled_count > 0:
+                            test_results["passed"].append(f"✓ Formular: {{filled_count}} Felder ausgefüllt")
+                            
+                            # Try to find and click submit button
+                            submit_selectors = [
+                                "button[type='submit']",
+                                "input[type='submit']",
+                                "button:has-text('Submit')",
+                                "button:has-text('Speichern')",
+                                "button:has-text('Senden')",
+                                "button:has-text('Save')"
+                            ]
+                            
+                            submitted = False
+                            for selector in submit_selectors:
+                                try:
+                                    submit_btn = await page.query_selector(selector)
+                                    if submit_btn:
+                                        await submit_btn.click()
+                                        await page.wait_for_timeout(1000)
+                                        test_results["passed"].append(f"✓ Submit Button geklickt: {{selector}}")
+                                        submitted = True
+                                        break
+                                except:
+                                    pass
+                            
+                            if not submitted:
+                                test_results["failed"].append("⚠️ Kein Submit Button gefunden")
+                        else:
+                            test_results["failed"].append("✗ Keine Formular-Felder gefunden")
+                    
+                    # Scenario: Click buttons
+                    elif "button" in scenario_lower or "click" in scenario_lower:
+                        buttons = await page.query_selector_all("button:not([type='submit'])")
+                        
+                        if buttons:
+                            for j, btn in enumerate(buttons[:3]):  # Test first 3 buttons
+                                btn_text = await btn.inner_text() or f"Button {{j+1}}"
+                                try:
+                                    await btn.click()
+                                    await page.wait_for_timeout(500)
+                                    test_results["passed"].append(f"✓ Button geklickt: {{btn_text}}")
+                                except Exception as e:
+                                    test_results["failed"].append(f"✗ Button-Click fehlgeschlagen: {{btn_text}}")
+                        else:
+                            test_results["failed"].append("✗ Keine Buttons gefunden")
+                    
+                    # Scenario: Navigation
+                    elif "nav" in scenario_lower or "link" in scenario_lower:
+                        links = await page.query_selector_all("a[href]:not([href^='#'])")
+                        
+                        if links:
+                            for j, link in enumerate(links[:3]):  # Test first 3 links
+                                link_text = await link.inner_text() or f"Link {{j+1}}"
+                                link_href = await link.get_attribute("href")
+                                
+                                # Only click internal links
+                                if link_href and not link_href.startswith("http"):
+                                    try:
+                                        await link.click()
+                                        await page.wait_for_timeout(1000)
+                                        test_results["passed"].append(f"✓ Navigation: {{link_text}}")
+                                        await page.go_back()
+                                    except:
+                                        test_results["failed"].append(f"✗ Navigation fehlgeschlagen: {{link_text}}")
+                        else:
+                            test_results["failed"].append("⚠️ Keine Navigation-Links gefunden")
+                    
+                    # Generic scenario
+                    else:
+                        test_results["passed"].append(f"ℹ️ Szenario notiert: {{scenario}}")
+                
+                except Exception as e:
+                    test_results["failed"].append(f"✗ Szenario fehlgeschlagen: {{scenario}} - {{str(e)}}")
+            
+            # Take final screenshot
+            await page.screenshot(path="/tmp/browser_test_final.png")
+            test_results["screenshots"].append("/tmp/browser_test_final.png")
+            
+        except Exception as e:
+            test_results["failed"].append(f"✗ Browser-Test Fehler: {{str(e)}}")
+        
+        finally:
+            await browser.close()
+    
+    # Output results as JSON
+    print("BROWSER_TEST_RESULTS_START")
+    print(json.dumps(test_results, indent=2))
+    print("BROWSER_TEST_RESULTS_END")
+
+if __name__ == "__main__":
+    asyncio.run(run_browser_test())
+"""
+            
+            # Write test script
+            test_script_path = workspace_path / ".browser_test.py"
+            async with aiofiles.open(test_script_path, 'w') as f:
+                await f.write(test_script)
+            
+            # Run test
+            try:
+                env = os.environ.copy()
+                env['PATH'] = '/usr/bin:/usr/local/bin:' + env.get('PATH', '')
+                # Use the same Python environment
+                python_bin = sys.executable
+                
+                proc = subprocess.run(
+                    [python_bin, str(test_script_path)],
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                    env=env,
+                    cwd=workspace_path
+                )
+                
+                # Parse results
+                output = proc.stdout
+                
+                if "BROWSER_TEST_RESULTS_START" in output:
+                    results_str = output.split("BROWSER_TEST_RESULTS_START")[1].split("BROWSER_TEST_RESULTS_END")[0].strip()
+                    test_results = json.loads(results_str)
+                    
+                    passed_count = len(test_results.get("passed", []))
+                    failed_count = len(test_results.get("failed", []))
+                    
+                    result_text = f"🌐 BROWSER-TEST ERGEBNISSE:\n\n"
+                    result_text += f"✅ Bestanden: {passed_count}\n"
+                    result_text += f"❌ Fehlgeschlagen: {failed_count}\n\n"
+                    
+                    if test_results.get("passed"):
+                        result_text += "ERFOLGE:\n" + "\n".join(test_results["passed"]) + "\n\n"
+                    
+                    if test_results.get("failed"):
+                        result_text += "FEHLER:\n" + "\n".join(test_results["failed"]) + "\n\n"
+                        await add_log(project_id, "error", f"Browser-Test: {failed_count} Fehler gefunden", "tester")
+                    else:
+                        await add_log(project_id, "success", f"Browser-Test: Alle {passed_count} Tests bestanden", "tester")
+                    
+                    result["output"] = result_text
+                    
+                    # If tests failed, agent should continue fixing
+                    if failed_count > 0:
+                        result["continue"] = True
+                else:
+                    result["output"] = f"⚠️ Browser-Test konnte nicht ausgewertet werden\n\nOutput:\n{output[:500]}\n\nError:\n{proc.stderr[:500]}"
+                    await add_log(project_id, "warning", "Browser-Test: Auswertung fehlgeschlagen", "tester")
+                
+            except subprocess.TimeoutExpired:
+                result["output"] = "❌ Browser-Test Timeout (>60s)"
+                await add_log(project_id, "error", "Browser-Test: Timeout", "tester")
+            except Exception as e:
+                result["output"] = f"❌ Browser-Test Fehler: {str(e)}"
+                await add_log(project_id, "error", f"Browser-Test: {str(e)}", "tester")
+            
+            await update_agent(project_id, "tester", "completed", "Browser-Test abgeschlossen")
+        
         elif tool_name == "debug_error":
             error_msg = arguments["error_message"]
             await update_agent(project_id, "debugger", "running", "Analysiere Fehler...")
@@ -1523,22 +1759,33 @@ DATEIEN: {files_context if files_context else 'Keine Dateien'}
 ═══════════════════════════════════════════════════════════════════════════════
 
 SCHRITT 1: VERSTEHEN & PLANEN (wie E1!)
-├─ 1. FRAGEN STELLEN (ask_user)
-│  ├─ Was ist unklar?
-│  ├─ Welche Technologie? (Vanilla JS / React / etc.)
-│  ├─ Welche Features GENAU?
-│  └─ Gibt es Design-Vorgaben?
-├─ 2. WEB SEARCH (web_search)
+├─ 1. TECHNOLOGIE-ENTSCHEIDUNGEN (EIGENSTÄNDIG!)
+│  ⚠️ KRITISCH: Frage NICHT nach Technologie-Wahl!
+│  ├─ Datenbank? → Wähle selbst die BESTE Option:
+│  │  ✓ MongoDB für Dokumente/Flexibilität
+│  │  ✓ PostgreSQL für Relationen/Komplexität  
+│  │  ✓ MySQL für einfache Webanwendungen
+│  ├─ Framework? → Wähle basierend auf Anforderung:
+│  │  ✓ React für interaktive UIs
+│  │  ✓ Vanilla JS für simple Apps
+│  │  ✓ Express/FastAPI für Backend
+│  └─ NIEMALS fragen: "MongoDB oder MySQL?" → WÄHLE SELBST!
+├─ 2. FRAGEN (ask_user) - NUR wenn WIRKLICH nötig!
+│  ✅ Frage nach: Design-Wünschen, Farben, spezifischen Features
+│  ❌ NICHT fragen: Technische Details, DB-Wahl, Framework
+│  └─ Beispiel: "Welche Farbe soll der Button haben?" ✅
+│            "MongoDB oder MySQL?" ❌
+├─ 3. WEB SEARCH (web_search)
 │  ├─ Best Practices recherchieren
 │  ├─ Neueste Techniken (2025!)
 │  ├─ Häufige Fehler vermeiden
 │  └─ Performance-Optimierungen
-├─ 3. ARCHITEKTUR PLANEN
+├─ 4. ARCHITEKTUR PLANEN
 │  ├─ Welche Dateien? (index.html, style.css, script.js?)
 │  ├─ Welche Funktionen/Klassen?
 │  ├─ Datenfluss & State Management
 │  └─ Error-Handling-Strategie
-└─ 4. ROADMAP (create_roadmap)
+└─ 5. ROADMAP (create_roadmap)
    └─ Jeden Step mit Status tracken
 
 SCHRITT 2: IMPLEMENTIERUNG (wie E1!)
@@ -1581,26 +1828,39 @@ SCHRITT 2: IMPLEMENTIERUNG (wie E1!)
    └─ update_roadmap_status
 
 SCHRITT 3: TESTING (wie E1 mit Testing Agent!)
+⚠️ KRITISCH: ECHTER Browser-Test PFLICHT vor mark_complete!
+
 ├─ 1. SYNTAX CHECK
 │  └─ test_code type="syntax" für ALLE Dateien
-├─ 2. LOGIC VALIDATION
-│  ├─ Lies ALLE Dateien nochmal
-│  └─ Prüfe Logik & Edge Cases
-├─ 3. PREVIEW TEST (KRITISCH!)
-│  ├─ Ist SOFORT visueller Inhalt da?
-│  ├─ Screen NICHT weiß/leer?
-│  ├─ Buttons funktionieren?
-│  └─ Keine Console-Errors?
-├─ 4. BEI SPIELEN:
+├─ 2. BROWSER TEST (NEU & PFLICHT!)
+│  ⚠️ Du MUSST browser_test aufrufen vor mark_complete!
+│  ├─ Was testen?
+│  │  ✓ Formulare ausfüllen und absenden
+│  │  ✓ Buttons klicken und Funktionalität prüfen
+│  │  ✓ Navigation testen (Links klicken)
+│  │  ✓ Daten speichern und laden
+│  │  ✓ ALLE interaktiven Elemente
+│  ├─ Beispiel Szenarien:
+│  │  browser_test scenarios=[
+│  │    "Fill contact form and submit",
+│  │    "Click all navigation links", 
+│  │    "Test search functionality"
+│  │  ]
+│  └─ WICHTIG: Test wie ein ECHTER Benutzer!
+│     - Klicke Buttons
+│     - Fülle Felder aus
+│     - Prüfe ob alles gespeichert wird
+│     - Nicht nur Code anschauen!
+├─ 3. BEI SPIELEN:
 │  ├─ Canvas SOFORT sichtbar?
 │  ├─ Spielfigur sichtbar?
 │  ├─ Steuerung reagiert?
 │  ├─ Game Loop läuft?
 │  └─ verify_game bestanden?
-└─ 5. WENN FEHLER:
+└─ 4. WENN FEHLER:
    ├─ debug_error für Analyse
    ├─ modify_file für Fix
-   ├─ RE-TEST bis perfekt!
+   ├─ RE-TEST (browser_test erneut!) bis perfekt!
    └─ WIEDERHOLE bis 100% funktioniert
 
 SCHRITT 4: QUALITY CONTROL (wie E1!)
@@ -1611,11 +1871,18 @@ SCHRITT 4: QUALITY CONTROL (wie E1!)
 └─ User Experience Check
 
 SCHRITT 5: FINISH (wie E1!)
-└─ mark_complete mit SUMMARY
-   ├─ Was wurde gebaut?
-   ├─ Welche Features?
-   ├─ Wie testen?
-   └─ Next Steps?
+⚠️ WICHTIG: Vor mark_complete MUSS browser_test BESTANDEN sein!
+
+└─ mark_complete NUR wenn:
+   ✅ browser_test durchgeführt und BESTANDEN
+   ✅ Alle Features funktionieren (echt getestet!)
+   ✅ Keine Fehler in Browser-Tests
+   ├─ Summary schreiben:
+   │  ├─ Was wurde gebaut?
+   │  ├─ Welche Features funktionieren?
+   │  ├─ Browser-Test Ergebnisse
+   │  └─ User kann jetzt selbst testen
+   └─ NIEMALS mark_complete ohne browser_test!
 
 ═══════════════════════════════════════════════════════════════════════════════
               🧠 E1 THINKING PATTERNS (übernehme diese!)
@@ -1631,8 +1898,10 @@ BEVOR du etwas machst - DENKE:
 ✓ "Was kann schiefgehen?"
 
 BEI UNSICHERHEIT:
-→ ask_user stellen!
-→ web_search nutzen!
+⚠️ ABER: NICHT bei technischen Entscheidungen fragen!
+→ ask_user für: Design, Farben, spezifische Features
+→ web_search für: Best Practices, Technologie-Vergleiche
+→ EIGENSTÄNDIG entscheiden: DB-Wahl, Framework, Libraries
 → NICHT raten oder annehmen!
 
 ZWISCHEN SCHRITTEN:
@@ -1844,16 +2113,22 @@ Antworte auf Deutsch."""
                     # Fallback to OpenAI
                     if openai_client:
                         active_provider = "openai"
-                        yield f"data: {json.dumps({'warning': 'Ollama fehlgeschlagen, nutze OpenAI', 'provider': 'openai'})}\n\n"
+                        error_msg = "Ollama fehlgeschlagen, nutze OpenAI"
+                        await add_log(project_id, "warning", error_msg, "orchestrator")
+                        yield f"data: {json.dumps({'warning': error_msg, 'provider': 'openai'})}\n\n"
                         # DON'T set should_continue = False! Just switch provider and continue!
                     else:
-                        yield f"data: {json.dumps({'error': 'Kein LLM verfügbar'})}\n\n"
+                        error_msg = "Kein LLM verfügbar"
+                        await add_log(project_id, "error", error_msg, "orchestrator")
+                        yield f"data: {json.dumps({'error': error_msg})}\n\n"
                         should_continue = False
                         break
             else:
                 # Use OpenAI
                 if not openai_client:
-                    yield f"data: {json.dumps({'error': 'Kein OpenAI API Key konfiguriert. Bitte unter Einstellungen > API Keys hinzufügen.'})}\n\n"
+                    error_msg = "Kein OpenAI API Key konfiguriert. Bitte unter Einstellungen > API Keys hinzufügen."
+                    await add_log(project_id, "error", error_msg, "orchestrator")
+                    yield f"data: {json.dumps({'error': error_msg})}\n\n"
                     should_continue = False
                     break
                     
@@ -1953,13 +2228,30 @@ STOPPE NICHT! Arbeite weiter bis mark_complete!"""
             await asyncio.sleep(0.5)
             
         except Exception as e:
+            error_type = type(e).__name__
+            error_msg = str(e)
+            
+            # Log specific error types
+            if "429" in error_msg or "rate_limit" in error_msg.lower():
+                detailed_error = f"⚠️ RATE LIMIT: OpenAI API zu viele Anfragen. Bitte warte kurz."
+                await add_log(project_id, "error", detailed_error, "orchestrator")
+            elif "401" in error_msg or "unauthorized" in error_msg.lower():
+                detailed_error = f"❌ API KEY FEHLER: OpenAI API Key ungültig. Bitte in Einstellungen prüfen."
+                await add_log(project_id, "error", detailed_error, "orchestrator")
+            elif "timeout" in error_msg.lower():
+                detailed_error = f"⏱️ TIMEOUT: OpenAI API Zeitüberschreitung."
+                await add_log(project_id, "error", detailed_error, "debugger")
+            else:
+                detailed_error = f"❌ FEHLER: {error_type}: {error_msg[:200]}"
+                await add_log(project_id, "error", detailed_error, "debugger")
+            
             logger.error(f"Error in autonomous agent loop (iteration {iteration}): {e}")
-            yield f"data: {json.dumps({'error': f'Agent Error: {str(e)}', 'iteration': iteration})}\n\n"
+            yield f"data: {json.dumps({'error': f'Agent Error: {error_msg[:100]}', 'iteration': iteration})}\n\n"
             
             # E1 STRATEGY: Don't stop on error - try to recover!
             messages.append({
                 "role": "user",
-                "content": f"FEHLER aufgetreten: {str(e)}\n\nBitte analysiere den Fehler und fahre fort! Nutze debug_error wenn nötig."
+                "content": f"FEHLER aufgetreten: {error_msg}\n\nBitte analysiere den Fehler und fahre fort! Nutze debug_error wenn nötig."
             })
             # Continue loop to let agent recover
     
