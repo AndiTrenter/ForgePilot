@@ -19,6 +19,7 @@ import aiofiles
 import subprocess
 import re
 import httpx
+import yaml
 
 ROOT_DIR = Path(__file__).parent
 APP_ROOT = ROOT_DIR.parent
@@ -875,7 +876,7 @@ AGENT_TOOLS = [
     {"type": "function", "function": {"name": "list_files", "description": "List all files", "parameters": {"type": "object", "properties": {"directory": {"type": "string"}}, "required": []}}},
     {"type": "function", "function": {"name": "run_command", "description": "Run shell command (npm, pip, python, node)", "parameters": {"type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"]}}},
     {"type": "function", "function": {"name": "setup_docker_service", "description": "Setup Docker service (MongoDB, PostgreSQL, Redis, MySQL, etc.) via docker-compose. Creates docker-compose.yml with the service.", "parameters": {"type": "object", "properties": {"service_type": {"type": "string", "enum": ["mongodb", "postgresql", "mysql", "redis", "elasticsearch", "rabbitmq", "custom"], "description": "Type of service to setup"}, "service_name": {"type": "string", "description": "Name for the service container"}, "port": {"type": "integer", "description": "Port to expose (optional)"}, "custom_config": {"type": "object", "description": "Custom docker-compose config for service (optional)"}}, "required": ["service_type", "service_name"]}}},
-    {"type": "function", "function": {"name": "install_package", "description": "Install npm or pip package in the project", "parameters": {"type": "object", "properties": {"package_manager": {"type": "string", "enum": ["npm", "pip", "yarn"], "description": "Package manager to use"}, "package_name": {"type": "string", "description": "Package name to install"}, "save_dev": {"type": "boolean", "default": false, "description": "Save as dev dependency (npm only)"}}, "required": ["package_manager", "package_name"]}}},
+    {"type": "function", "function": {"name": "install_package", "description": "Install npm or pip package in the project", "parameters": {"type": "object", "properties": {"package_manager": {"type": "string", "enum": ["npm", "pip", "yarn"], "description": "Package manager to use"}, "package_name": {"type": "string", "description": "Package name to install"}, "save_dev": {"type": "boolean", "default": False, "description": "Save as dev dependency (npm only)"}}, "required": ["package_manager", "package_name"]}}},
     {"type": "function", "function": {"name": "create_roadmap", "description": "Create a roadmap item", "parameters": {"type": "object", "properties": {"title": {"type": "string"}, "description": {"type": "string"}}, "required": ["title", "description"]}}},
     {"type": "function", "function": {"name": "update_roadmap_status", "description": "Update roadmap item status", "parameters": {"type": "object", "properties": {"title": {"type": "string"}, "status": {"type": "string", "enum": ["pending", "in_progress", "completed"]}}, "required": ["title", "status"]}}},
     {"type": "function", "function": {"name": "web_search", "description": "Search web for best practices and examples", "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "max_results": {"type": "integer", "default": 5}}, "required": ["query"]}}},
@@ -1243,6 +1244,132 @@ async def execute_tool(tool_name: str, arguments: dict, workspace_path: Path, pr
             result["ask_user"] = True
             await add_log(project_id, "info", f"Frage: {question}", "orchestrator")
         
+        elif tool_name == "setup_docker_service":
+            service_type = arguments["service_type"]
+            service_name = arguments["service_name"]
+            port = arguments.get("port")
+            custom_config = arguments.get("custom_config")
+            
+            await update_agent(project_id, "coder", "running", f"Setup {service_type}...")
+            await add_log(project_id, "info", f"Richte {service_type} Service ein: {service_name}", "coder")
+            
+            # Docker Compose Templates
+            templates = {
+                "mongodb": {
+                    "image": "mongo:latest",
+                    "ports": [f"{port or 27017}:27017"],
+                    "environment": {
+                        "MONGO_INITDB_ROOT_USERNAME": "admin",
+                        "MONGO_INITDB_ROOT_PASSWORD": "password"
+                    },
+                    "volumes": [f"{service_name}_data:/data/db"]
+                },
+                "postgresql": {
+                    "image": "postgres:latest",
+                    "ports": [f"{port or 5432}:5432"],
+                    "environment": {
+                        "POSTGRES_USER": "admin",
+                        "POSTGRES_PASSWORD": "password",
+                        "POSTGRES_DB": "database"
+                    },
+                    "volumes": [f"{service_name}_data:/var/lib/postgresql/data"]
+                },
+                "mysql": {
+                    "image": "mysql:latest",
+                    "ports": [f"{port or 3306}:3306"],
+                    "environment": {
+                        "MYSQL_ROOT_PASSWORD": "password",
+                        "MYSQL_DATABASE": "database"
+                    },
+                    "volumes": [f"{service_name}_data:/var/lib/mysql"]
+                },
+                "redis": {
+                    "image": "redis:latest",
+                    "ports": [f"{port or 6379}:6379"],
+                    "volumes": [f"{service_name}_data:/data"]
+                },
+                "elasticsearch": {
+                    "image": "elasticsearch:8.11.0",
+                    "ports": [f"{port or 9200}:9200"],
+                    "environment": {
+                        "discovery.type": "single-node",
+                        "xpack.security.enabled": "false"
+                    },
+                    "volumes": [f"{service_name}_data:/usr/share/elasticsearch/data"]
+                },
+                "rabbitmq": {
+                    "image": "rabbitmq:management",
+                    "ports": [f"{port or 5672}:5672", "15672:15672"],
+                    "volumes": [f"{service_name}_data:/var/lib/rabbitmq"]
+                }
+            }
+            
+            # Get template or use custom
+            service_config = custom_config if custom_config else templates.get(service_type, {})
+            
+            # Create docker-compose.yml
+            docker_compose = {
+                "version": "3.8",
+                "services": {
+                    service_name: service_config
+                },
+                "volumes": {
+                    f"{service_name}_data": {}
+                }
+            }
+            
+            # Write docker-compose.yml
+            compose_path = workspace_path / "docker-compose.yml"
+            import yaml
+            with open(compose_path, 'w') as f:
+                yaml.dump(docker_compose, f, default_flow_style=False)
+            
+            result["output"] = f"✓ Docker Compose für {service_type} erstellt: {service_name}\nDatei: docker-compose.yml\nStarte mit: docker-compose up -d"
+            await add_log(project_id, "success", f"{service_type} Service konfiguriert", "coder")
+            await update_agent(project_id, "coder", "completed", "Service Setup complete")
+        
+        elif tool_name == "install_package":
+            package_manager = arguments["package_manager"]
+            package_name = arguments["package_name"]
+            save_dev = arguments.get("save_dev", False)
+            
+            await update_agent(project_id, "coder", "running", f"Installiere {package_name}...")
+            await add_log(project_id, "info", f"Installiere Paket: {package_name} ({package_manager})", "coder")
+            
+            try:
+                env = os.environ.copy()
+                env['PATH'] = '/usr/bin:/usr/local/bin:' + env.get('PATH', '')
+                
+                if package_manager == "npm":
+                    cmd = f"npm install {package_name}"
+                    if save_dev:
+                        cmd += " --save-dev"
+                elif package_manager == "yarn":
+                    cmd = f"yarn add {package_name}"
+                    if save_dev:
+                        cmd += " --dev"
+                elif package_manager == "pip":
+                    cmd = f"pip install {package_name}"
+                
+                proc = subprocess.run(cmd, shell=True, cwd=workspace_path, capture_output=True, text=True, timeout=120, env=env)
+                
+                if proc.returncode == 0:
+                    result["output"] = f"✓ Paket installiert: {package_name}\n{proc.stdout[:500]}"
+                    await add_log(project_id, "success", f"Paket installiert: {package_name}", "coder")
+                else:
+                    result["output"] = f"✗ Installation fehlgeschlagen: {package_name}\n{proc.stderr[:500]}"
+                    await add_log(project_id, "error", f"Installation fehlgeschlagen: {package_name}", "coder")
+                
+                await update_agent(project_id, "coder", "completed", "Package installed")
+            except subprocess.TimeoutExpired:
+                result["output"] = f"✗ Timeout bei Installation: {package_name}"
+                await add_log(project_id, "error", f"Timeout: {package_name}", "coder")
+                await update_agent(project_id, "coder", "idle", "Timeout")
+            except Exception as e:
+                result["output"] = f"✗ Fehler: {str(e)}"
+                await add_log(project_id, "error", f"Fehler: {str(e)}", "coder")
+                await update_agent(project_id, "coder", "idle", "Error")
+        
         elif tool_name == "mark_complete":
             summary = arguments["summary"]
             tested_features = arguments.get("tested_features", [])
@@ -1333,13 +1460,31 @@ SCHRITT 2: IMPLEMENTIERUNG (wie E1!)
 │  ├─ ALLE Features implementiert
 │  ├─ Error-Handling eingebaut
 │  └─ Comments für komplexe Logik
-├─ 3. BEST PRACTICES
+├─ 3. DEVOPS & INFRASTRUCTURE (NEU!)
+│  ├─ Brauchst du eine Datenbank? → setup_docker_service
+│  │  ✓ MongoDB: setup_docker_service type="mongodb"
+│  │  ✓ PostgreSQL: setup_docker_service type="postgresql"
+│  │  ✓ MySQL, Redis, Elasticsearch, RabbitMQ verfügbar!
+│  ├─ Brauchst du Packages? → install_package
+│  │  ✓ npm install express: install_package manager="npm" package="express"
+│  │  ✓ pip install flask: install_package manager="pip" package="flask"
+│  │  ✓ yarn add react: install_package manager="yarn" package="react"
+│  ├─ KEINE Limitierungen!
+│  │  ✓ Mehrere TB Speicher verfügbar
+│  │  ✓ Docker Services installieren
+│  │  ✓ Production-Ready Setups
+│  └─ Denke wie DevOps Engineer:
+│     - Welche Services brauche ich?
+│     - Welche Datenbank passt am besten?
+│     - Welche Packages fehlen?
+│     - Wie richte ich die Testumgebung ein?
+├─ 4. BEST PRACTICES
 │  ├─ Clean Code (lesbar, wartbar)
 │  ├─ DRY (Don't Repeat Yourself)
 │  ├─ Defensive Programming
 │  ├─ Performance optimiert
 │  └─ Security-bewusst
-└─ 4. NACH JEDER DATEI:
+└─ 5. NACH JEDER DATEI:
    ├─ read_file zur Validierung
    ├─ Prüfe: Ist der Code vollständig?
    ├─ modify_file wenn nötig
@@ -1521,11 +1666,19 @@ WENN PROBLEME:
 7. delete_file - Lösche Unnötiges
 8. list_files - Übersicht behalten
 9. run_command - Shell-Befehle (node, npm, etc.)
-10. test_code - Syntax/Run Tests
-11. verify_game - Spiele-Validierung
-12. debug_error - Fehleranalyse
-13. update_roadmap_status - Fortschritt tracken
-14. mark_complete - FINISH (nur wenn 100% fertig!)
+10. **setup_docker_service** - 🆕 Datenbanken & Services!
+    • MongoDB, PostgreSQL, MySQL, Redis, Elasticsearch, RabbitMQ
+    • Erstellt docker-compose.yml automatisch
+    • Starte mit: docker-compose up -d
+11. **install_package** - 🆕 Packages installieren!
+    • npm install <package>
+    • pip install <package>
+    • yarn add <package>
+12. test_code - Syntax/Run Tests
+13. verify_game - Spiele-Validierung
+14. debug_error - Fehleranalyse
+15. update_roadmap_status - Fortschritt tracken
+16. mark_complete - FINISH (nur wenn 100% fertig!)
 
 ═══════════════════════════════════════════════════════════════════════════════
               ✨ E1 QUALITY STANDARDS
