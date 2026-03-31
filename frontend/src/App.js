@@ -1586,24 +1586,6 @@ const SettingsModal = ({ isOpen, onClose, onRefreshLLMStatus }) => {
                   </div>
                 </div>
               )}
-                            navigator.clipboard.writeText('bash /app/forgepilot/update.sh');
-                            setMessage({ type: 'success', text: 'Script-Befehl kopiert!' });
-                          }}
-                          className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded flex items-center justify-center gap-2"
-                        >
-                          <Terminal size={16} />
-                          Kopieren
-                        </button>
-                      </div>
-                    </div>
-                    <div className="p-4 border-t border-zinc-800 flex justify-end">
-                      <button onClick={() => setShowUpdateInstructions(false)} className="px-4 py-2 bg-zinc-700 hover:bg-zinc-600 text-white rounded">
-                        Schließen
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
 
               <div className="text-xs text-zinc-500 mt-4">
                 <p>ForgePilot prüft automatisch auf Updates.</p>
