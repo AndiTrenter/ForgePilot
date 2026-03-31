@@ -414,7 +414,7 @@ const SyntaxEditor = ({ content, onChange, language = "javascript", readOnly = f
     <div className="relative h-full w-full bg-zinc-950 font-mono text-sm overflow-hidden">
       <pre 
         ref={highlightRef}
-        className="absolute inset-0 p-4 overflow-auto pointer-events-none m-0 whitespace-pre-wrap break-words"
+        className="absolute inset-0 p-4 overflow-auto pointer-events-none m-0 whitespace-pre text-left"
         style={{ color: 'transparent' }}
         aria-hidden="true"
       >
@@ -426,7 +426,7 @@ const SyntaxEditor = ({ content, onChange, language = "javascript", readOnly = f
         onChange={(e) => onChange(e.target.value)}
         onScroll={handleScroll}
         readOnly={readOnly}
-        className="absolute inset-0 w-full h-full bg-transparent text-transparent caret-white p-4 resize-none focus:outline-none leading-relaxed whitespace-pre-wrap break-words"
+        className="absolute inset-0 w-full h-full bg-transparent text-transparent caret-white p-4 resize-none focus:outline-none leading-relaxed whitespace-pre text-left"
         spellCheck={false}
         data-testid="code-editor-textarea"
       />
