@@ -808,13 +808,43 @@ const SettingsModal = ({ isOpen, onClose, onRefreshLLMStatus }) => {
   const [checkingUpdate, setCheckingUpdate] = useState(false);
 
   const [showUpdateInstructions, setShowUpdateInstructions] = useState(false);
+  const [updateCommand, setUpdateCommand] = useState('');
+  const [updateResponse, setUpdateResponse] = useState(null);
 
   const installUpdate = async () => {
     try {
-      const res = await axios.post(`${API}/update/install`);
+      const res = await axios.post(`${API}/update/execute`);
+      
+      // Show command and response
+      if (res.data.command) {
+        setUpdateCommand(res.data.command);
+      }
+      setUpdateResponse(res.data);
       setShowUpdateInstructions(true);
+      
+      // Show success/error message
+      if (res.data.success) {
+        setMessage({ 
+          type: 'success', 
+          text: res.data.message || 'Update wird ausgeführt...' 
+        });
+      } else {
+        setMessage({ 
+          type: 'error', 
+          text: res.data.message || 'Update fehlgeschlagen' 
+        });
+      }
     } catch (e) {
-      setMessage({ type: 'error', text: 'Fehler: ' + (e.response?.data?.detail || e.message) });
+      const errorData = e.response?.data;
+      const errorMsg = errorData?.detail || e.message;
+      
+      setMessage({ type: 'error', text: 'Fehler: ' + errorMsg });
+      
+      // If command is included in error, show it
+      if (errorData?.command) {
+        setUpdateCommand(errorData.command);
+        setShowUpdateInstructions(true);
+      }
     }
   };
 
@@ -1446,68 +1476,116 @@ const SettingsModal = ({ isOpen, onClose, onRefreshLLMStatus }) => {
               {/* Update Instructions Modal */}
               {showUpdateInstructions && (
                 <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[60] p-4" onClick={() => setShowUpdateInstructions(false)}>
-                  <div className="bg-zinc-900 border border-zinc-700 rounded-lg w-full max-w-lg shadow-2xl" onClick={e => e.stopPropagation()}>
+                  <div className="bg-zinc-900 border border-zinc-700 rounded-lg w-full max-w-2xl shadow-2xl" onClick={e => e.stopPropagation()}>
                     <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
                       <h3 className="text-lg font-medium text-white flex items-center gap-2">
                         <RefreshCw size={20} className="text-emerald-400" />
-                        Update auf {updateStatus?.latest_version}
+                        Update auf {updateResponse?.target_version || updateStatus?.latest_version}
                       </h3>
                       <button onClick={() => setShowUpdateInstructions(false)} className="text-zinc-400 hover:text-white">
                         <X size={20} />
                       </button>
                     </div>
                     <div className="p-4 space-y-4">
-                      <p className="text-sm text-zinc-300">
-                        Führe <strong>einen</strong> der folgenden Befehle auf deinem Unraid Server aus:
-                      </p>
-                      
-                      {/* Option 1: Update Script */}
-                      <div className="bg-zinc-950 rounded-lg p-4">
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 text-xs rounded">Empfohlen</span>
-                          <span className="text-sm font-medium text-white">Update Script</span>
+                      {/* Status Message */}
+                      {updateResponse?.message && (
+                        <div className={`p-3 rounded-lg border ${updateResponse.success ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' : 'bg-amber-500/10 border-amber-500/30 text-amber-300'}`}>
+                          {updateResponse.message}
                         </div>
-                        <code className="text-emerald-400 font-mono text-sm">bash /app/forgepilot/update.sh</code>
-                        <p className="text-xs text-zinc-500 mt-2">Das Script macht alles automatisch: Pull, Stop, Remove, Start</p>
-                      </div>
+                      )}
                       
-                      {/* Option 2: Manuell */}
-                      <div className="bg-zinc-950 rounded-lg p-4">
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className="text-sm font-medium text-zinc-400">Oder manuell:</span>
+                      {/* Command to execute */}
+                      {updateCommand && (
+                        <div className="bg-zinc-950 rounded-lg p-4 border border-amber-500/30">
+                          <div className="flex items-center gap-2 mb-3">
+                            <Terminal size={16} className="text-amber-400" />
+                            <span className="text-sm font-medium text-amber-400">Befehl zum Ausführen (als Root):</span>
+                          </div>
+                          <div className="bg-black/50 rounded p-3 mb-3">
+                            <code className="text-emerald-400 font-mono text-sm whitespace-pre-wrap break-all">
+                              {updateCommand}
+                            </code>
+                          </div>
+                          <button
+                            onClick={() => {
+                              navigator.clipboard.writeText(updateCommand);
+                              setMessage({ type: 'success', text: 'Befehl in Zwischenablage kopiert!' });
+                            }}
+                            className="w-full px-3 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded text-sm flex items-center justify-center gap-2"
+                          >
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                            </svg>
+                            In Zwischenablage kopieren
+                          </button>
                         </div>
-                        <div className="font-mono text-xs space-y-1">
-                          <div className="text-zinc-400">cd /app/forgepilot</div>
-                          <div className="text-emerald-400">docker-compose -f /app/forgepilot/docker-compose.unraid.yml pull</div>
-                          <div className="text-emerald-400">docker-compose -f /app/forgepilot/docker-compose.unraid.yml down</div>
-                          <div className="text-emerald-400">docker-compose -f /app/forgepilot/docker-compose.unraid.yml up -d</div>
-                        </div>
-                      </div>
+                      )}
                       
-                      <div className="flex gap-2">
-                        <button
-                          onClick={async () => {
-                            try {
-                              setIsUpdating(true);
-                              const res = await axios.post(`${API}/update/execute`);
-                              setMessage({ type: 'success', text: res.data.message || 'Update wird ausgeführt...' });
-                              setTimeout(() => {
-                                window.location.reload();
-                              }, 60000); // Reload after 1 minute
-                            } catch (e) {
-                              setMessage({ type: 'error', text: e.response?.data?.detail || 'Update fehlgeschlagen' });
-                            } finally {
-                              setIsUpdating(false);
-                            }
-                          }}
-                          disabled={isUpdating}
-                          className="flex-1 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-zinc-700 disabled:cursor-not-allowed text-white rounded flex items-center justify-center gap-2 font-medium"
-                        >
-                          {isUpdating ? <Loader2 className="animate-spin" size={16} /> : <Play size={16} />}
-                          {isUpdating ? 'Update läuft...' : 'Jetzt updaten'}
-                        </button>
+                      {/* Update Details */}
+                      {updateResponse && (
+                        <div className="space-y-2 text-sm">
+                          {updateResponse.script_path && (
+                            <div className="flex justify-between text-zinc-400">
+                              <span>Script-Pfad:</span>
+                              <span className="font-mono text-zinc-300">{updateResponse.script_path}</span>
+                            </div>
+                          )}
+                          {updateResponse.working_directory && (
+                            <div className="flex justify-between text-zinc-400">
+                              <span>Arbeitsverzeichnis:</span>
+                              <span className="font-mono text-zinc-300">{updateResponse.working_directory}</span>
+                            </div>
+                          )}
+                          {updateResponse.pid && (
+                            <div className="flex justify-between text-zinc-400">
+                              <span>Prozess-ID (PID):</span>
+                              <span className="font-mono text-emerald-400">{updateResponse.pid}</span>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      
+                      {/* Alternative: Original Instructions */}
+                      {!updateCommand && (
+                        <>
+                          <p className="text-sm text-zinc-300">
+                            Führe <strong>einen</strong> der folgenden Befehle auf deinem Unraid Server aus:
+                          </p>
+                          
+                          {/* Option 1: Update Script */}
+                          <div className="bg-zinc-950 rounded-lg p-4">
+                            <div className="flex items-center gap-2 mb-2">
+                              <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 text-xs rounded">Empfohlen</span>
+                              <span className="text-sm font-medium text-white">Update Script</span>
+                            </div>
+                            <code className="text-emerald-400 font-mono text-sm">cd /mnt/user/appdata/forgepilot && sudo bash update.sh</code>
+                            <p className="text-xs text-zinc-500 mt-2">Das Script macht alles automatisch: Pull, Stop, Remove, Start</p>
+                          </div>
+                        </>
+                      )}
+                      
+                      <div className="flex gap-2 mt-4">
                         <button
                           onClick={() => {
+                            setShowUpdateInstructions(false);
+                            window.location.reload();
+                          }}
+                          className="flex-1 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded"
+                        >
+                          Seite neu laden
+                        </button>
+                        <button
+                          onClick={() => setShowUpdateInstructions(false)}
+                          className="flex-1 px-4 py-2 bg-zinc-700 hover:bg-zinc-600 text-white rounded"
+                        >
+                          Schließen
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
                             navigator.clipboard.writeText('bash /app/forgepilot/update.sh');
                             setMessage({ type: 'success', text: 'Script-Befehl kopiert!' });
                           }}

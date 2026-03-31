@@ -751,7 +751,7 @@ async def install_update(target_version: str = None):
 
 @api_router.post("/update/execute")
 async def execute_update_script():
-    """Execute update script directly (for UI button)"""
+    """Execute update script directly (for UI button) with root privileges"""
     update_info = await update_collection.find_one({"_id": "update_status"}) or {}
     
     if not update_info.get("update_available"):
@@ -770,34 +770,73 @@ async def execute_update_script():
         upsert=True
     )
     
-    # Execute update script
+    # Execute update script with root privileges
     try:
-        script_path = Path("/app/forgepilot/update.sh")
-        if not script_path.exists():
-            script_path = Path("/app/update.sh")
+        # Check multiple possible locations
+        possible_paths = [
+            Path("/mnt/user/appdata/forgepilot/update.sh"),  # Unraid
+            Path("/app/forgepilot/update.sh"),
+            Path("/app/update.sh")
+        ]
         
-        if not script_path.exists():
-            raise FileNotFoundError("Update-Script nicht gefunden")
+        script_path = None
+        for path in possible_paths:
+            if path.exists():
+                script_path = path
+                break
         
-        # Execute in background
-        subprocess.Popen(
-            ["bash", str(script_path)],
-            cwd="/app/forgepilot" if Path("/app/forgepilot").exists() else "/app",
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
+        if not script_path:
+            raise FileNotFoundError(f"Update-Script nicht gefunden. Geprüfte Pfade: {[str(p) for p in possible_paths]}")
+        
+        # Get working directory
+        work_dir = script_path.parent
+        
+        # Create popup command for user
+        popup_command = f"cd {work_dir} && sudo bash {script_path.name}"
+        
+        logger.info(f"Executing update script: {script_path}")
+        logger.info(f"Working directory: {work_dir}")
+        logger.info(f"Command for user: {popup_command}")
+        
+        # Execute with sudo (will work if sudoers is configured or running as root)
+        proc = subprocess.Popen(
+            ["sudo", "bash", str(script_path)],
+            cwd=str(work_dir),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
         )
         
-        logger.info(f"Update script executed for version {version}")
+        # Don't wait for completion (background execution)
+        logger.info(f"Update script started with PID {proc.pid}")
         
         return {
             "success": True,
-            "message": "Update wird ausgeführt. Die Anwendung wird in ca. 30-60 Sekunden neu starten.",
+            "message": f"Update wird ausgeführt auf Version {version}.\n\nDie Anwendung wird in ca. 30-60 Sekunden neu starten.",
             "current_version": APP_VERSION,
-            "target_version": version
+            "target_version": version,
+            "script_path": str(script_path),
+            "working_directory": str(work_dir),
+            "command": popup_command,
+            "pid": proc.pid,
+            "note": "Falls Update fehlschlägt, führe manuell aus:",
+            "manual_command": popup_command
+        }
+    except PermissionError as e:
+        error_msg = f"Keine Root-Rechte. Bitte manuell ausführen:\n\n{popup_command}"
+        logger.error(f"Permission denied: {e}")
+        return {
+            "success": False,
+            "message": error_msg,
+            "command": popup_command,
+            "error": "Permission denied - Root-Rechte erforderlich"
         }
     except Exception as e:
         logger.error(f"Failed to execute update script: {e}")
-        raise HTTPException(status_code=500, detail=f"Update-Script konnte nicht ausgeführt werden: {str(e)}")
+        error_detail = f"Update-Script konnte nicht ausgeführt werden: {str(e)}"
+        if script_path:
+            error_detail += f"\n\nManuell ausführen:\n{popup_command}"
+        raise HTTPException(status_code=500, detail=error_detail)
 
 @api_router.post("/update/rollback")
 async def rollback_update():
