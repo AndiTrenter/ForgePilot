@@ -772,11 +772,11 @@ async def execute_update_script():
     
     # Execute update script with root privileges
     try:
-        # Check multiple possible locations
+        # Check multiple possible locations (most common first)
         possible_paths = [
-            Path("/mnt/user/appdata/forgepilot/update.sh"),  # Unraid
-            Path("/app/forgepilot/update.sh"),
-            Path("/app/update.sh")
+            Path("/app/update.sh"),  # Default location (development/container)
+            Path("/mnt/user/appdata/forgepilot/update.sh"),  # Unraid deployment
+            Path("/app/forgepilot/update.sh"),  # Alternative deployment
         ]
         
         script_path = None
