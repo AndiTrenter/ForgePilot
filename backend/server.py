@@ -2193,7 +2193,24 @@ Antworte auf Deutsch."""
                 # 2. mark_complete (project finished)
                 # 3. max_iterations reached
                 
-                messages.append({"role": "assistant", "content": content, "tool_calls": [{"id": tc.id, "type": "function", "function": {"name": tc.function.name, "arguments": tc.function.arguments}} for tc in tool_calls]})
+                # Build assistant message properly
+                assistant_msg = {"role": "assistant", "content": content}
+                
+                # CRITICAL: Only add tool_calls if there are actual tool calls
+                # Empty tool_calls array is INVALID for OpenAI API
+                if tool_calls:
+                    assistant_msg["tool_calls"] = [
+                        {
+                            "id": tc.id,
+                            "type": "function",
+                            "function": {
+                                "name": tc.function.name,
+                                "arguments": tc.function.arguments
+                            }
+                        } for tc in tool_calls
+                    ]
+                
+                messages.append(assistant_msg)
                 
                 # Track if we should continue in THIS iteration
                 stop_this_iteration = False
