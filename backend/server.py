@@ -1678,41 +1678,89 @@ async def get_github_branches(repo: str = Query(...)):
 
 @api_router.post("/github/import")
 async def import_from_github(data: GitHubImport):
-    project_name = data.project_name or data.repo_url.split('/')[-1].replace('.git', '')
-    project_obj = Project(name=project_name, description=f"Importiert von {data.repo_url}", github_url=data.repo_url)
-    workspace_path = WORKSPACES_DIR / project_obj.id
+    """Import project from GitHub repository"""
+    try:
+        project_name = data.project_name or data.repo_url.split('/')[-1].replace('.git', '')
+        project_obj = Project(name=project_name, description=f"Importiert von {data.repo_url}", github_url=data.repo_url)
+        workspace_path = WORKSPACES_DIR / project_obj.id
+        workspace_path.mkdir(parents=True, exist_ok=True)
+        
+        # Set environment with proper PATH for git
+        import_env = os.environ.copy()
+        import_env['PATH'] = '/usr/bin:/usr/local/bin:' + import_env.get('PATH', '')
+        import_env['GIT_TERMINAL_PROMPT'] = '0'  # Disable interactive prompts
+        
+        # Prepare clone URL with token if available
+        clone_url = data.repo_url
+        if app_settings.github_token:
+            clone_url = data.repo_url.replace('https://', f'https://{app_settings.github_token}@')
+        
+        # Clone repository with explicit git path and environment
+        logger.info(f"Cloning {data.repo_url} to {workspace_path}")
+        git.Repo.clone_from(
+            clone_url, 
+            workspace_path, 
+            branch=data.branch,
+            env=import_env
+        )
+        
+        project_obj.workspace_path = str(workspace_path)
+        await db.projects.insert_one(project_obj.model_dump())
+        
+        for agent_type in ["orchestrator", "planner", "coder", "reviewer", "tester", "debugger", "git"]:
+            await db.agent_status.insert_one(AgentStatus(project_id=project_obj.id, agent_type=agent_type).model_dump())
+        
+        await add_log(project_obj.id, "success", f"Repository geklont: {data.repo_url}", "git")
+        logger.info(f"Successfully imported {data.repo_url}")
+        return project_obj
     
-    clone_url = data.repo_url.replace('https://', f'https://{app_settings.github_token}@') if app_settings.github_token else data.repo_url
-    git.Repo.clone_from(clone_url, workspace_path, branch=data.branch)
-    
-    project_obj.workspace_path = str(workspace_path)
-    await db.projects.insert_one(project_obj.model_dump())
-    
-    for agent_type in ["orchestrator", "planner", "coder", "reviewer", "tester", "debugger", "git"]:
-        await db.agent_status.insert_one(AgentStatus(project_id=project_obj.id, agent_type=agent_type).model_dump())
-    
-    await add_log(project_obj.id, "success", f"Repository geklont: {data.repo_url}", "git")
-    return project_obj
+    except git.GitCommandError as e:
+        logger.error(f"Git clone failed: {e}")
+        raise HTTPException(status_code=400, detail=f"Git clone fehlgeschlagen: {str(e)}")
+    except Exception as e:
+        logger.error(f"GitHub import failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Import fehlgeschlagen: {str(e)}")
 
 @api_router.post("/projects/{project_id}/push")
 async def push_to_github(project_id: str):
-    project = await db.projects.find_one({"id": project_id})
-    if not project or not project.get("github_url"):
-        raise HTTPException(status_code=400, detail="Kein GitHub Repository")
+    """Push project changes to GitHub"""
+    try:
+        project = await db.projects.find_one({"id": project_id})
+        if not project or not project.get("github_url"):
+            raise HTTPException(status_code=400, detail="Kein GitHub Repository")
+        
+        workspace_path = project.get('workspace_path')
+        commit_message = project.get("pending_commit_message", "Update from ForgePilot")
+        
+        # Set environment with proper PATH for git
+        git_env = os.environ.copy()
+        git_env['PATH'] = '/usr/bin:/usr/local/bin:' + git_env.get('PATH', '')
+        git_env['GIT_TERMINAL_PROMPT'] = '0'
+        
+        await update_agent(project_id, "git", "running", "Push...")
+        
+        # Use git with explicit environment
+        repo = git.Repo(workspace_path)
+        with repo.git.custom_environment(**git_env):
+            repo.git.add(A=True)
+            repo.index.commit(commit_message)
+            repo.remote('origin').push()
+        
+        await db.projects.update_one({"id": project_id}, {"$set": {"status": "active", "pending_commit_message": None, "last_push": datetime.now(timezone.utc).isoformat()}})
+        await update_agent(project_id, "git", "completed", "Push erfolgreich")
+        await add_log(project_id, "success", f"Gepusht: {commit_message}", "git")
+        logger.info(f"Successfully pushed {project_id} to GitHub")
+        return {"success": True}
     
-    workspace_path = project.get('workspace_path')
-    commit_message = project.get("pending_commit_message", "Update from ForgePilot")
-    
-    await update_agent(project_id, "git", "running", "Push...")
-    repo = git.Repo(workspace_path)
-    repo.git.add(A=True)
-    repo.index.commit(commit_message)
-    repo.remote('origin').push()
-    
-    await db.projects.update_one({"id": project_id}, {"$set": {"status": "active", "pending_commit_message": None, "last_push": datetime.now(timezone.utc).isoformat()}})
-    await update_agent(project_id, "git", "completed", "Push erfolgreich")
-    await add_log(project_id, "success", f"Gepusht: {commit_message}", "git")
-    return {"success": True}
+    except git.GitCommandError as e:
+        logger.error(f"Git push failed: {e}")
+        await update_agent(project_id, "git", "idle", "Push fehlgeschlagen")
+        await add_log(project_id, "error", f"Push fehlgeschlagen: {str(e)}", "git")
+        raise HTTPException(status_code=500, detail=f"Git push fehlgeschlagen: {str(e)}")
+    except Exception as e:
+        logger.error(f"Push to GitHub failed: {e}")
+        await update_agent(project_id, "git", "idle", "Push fehlgeschlagen")
+        raise HTTPException(status_code=500, detail=f"Push fehlgeschlagen: {str(e)}")
 
 # ============== ROADMAP & LOGS ==============
 
