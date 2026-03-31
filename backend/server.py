@@ -1703,7 +1703,26 @@ if __name__ == "__main__":
             
             try:
                 env = os.environ.copy()
-                env['PATH'] = '/usr/bin:/usr/local/bin:' + env.get('PATH', '')
+                env['PATH'] = '/usr/bin:/usr/local/bin:/bin:' + env.get('PATH', '')
+                
+                # Ensure package.json exists for npm/yarn
+                if package_manager in ["npm", "yarn"]:
+                    package_json_path = workspace_path / "package.json"
+                    if not package_json_path.exists():
+                        await add_log(project_id, "info", "Erstelle package.json...", "coder")
+                        default_package_json = {
+                            "name": "project",
+                            "version": "1.0.0",
+                            "description": "",
+                            "main": "index.js",
+                            "scripts": {
+                                "start": "node index.js"
+                            },
+                            "dependencies": {},
+                            "devDependencies": {}
+                        }
+                        async with aiofiles.open(package_json_path, 'w') as f:
+                            await f.write(json.dumps(default_package_json, indent=2))
                 
                 if package_manager == "npm":
                     cmd = f"npm install {package_name}"
@@ -1722,7 +1741,12 @@ if __name__ == "__main__":
                     result["output"] = f"✓ Paket installiert: {package_name}\n{proc.stdout[:500]}"
                     await add_log(project_id, "success", f"Paket installiert: {package_name}", "coder")
                 else:
-                    result["output"] = f"✗ Installation fehlgeschlagen: {package_name}\n{proc.stderr[:500]}"
+                    error_output = proc.stderr[:500]
+                    # Better error message
+                    if "ENOENT" in error_output or "No such file" in error_output:
+                        result["output"] = f"✗ Installation fehlgeschlagen: {package_name}\nFehler: Node.js/npm nicht im PATH oder Workspace-Problem\n\nDetails:\n{error_output}\n\nTipp: Nutze run_command statt install_package für mehr Kontrolle"
+                    else:
+                        result["output"] = f"✗ Installation fehlgeschlagen: {package_name}\n{error_output}"
                     await add_log(project_id, "error", f"Installation fehlgeschlagen: {package_name}", "coder")
                 
                 await update_agent(project_id, "coder", "completed", "Package installed")
@@ -1847,8 +1871,11 @@ SCHRITT 2: IMPLEMENTIERUNG (wie E1!)
 │  ├─ create_file("requirements.txt", {...}) für Python
 │  └─ Alle Quellcode-Dateien
 ├─ 2. Dependencies SELBST installieren (run_command)
-│  ├─ run_command("npm install") ✅ für Node/React
-│  ├─ run_command("pip install -r requirements.txt") ✅ für Python
+│  ⚠️ BEVORZUGE run_command statt install_package!
+│  ├─ run_command("npm install") ✅ BESSER
+│  ├─ run_command("npm install react react-dom") ✅ BESSER  
+│  ├─ run_command("pip install -r requirements.txt") ✅
+│  ├─ install_package(...) ⚠️ nur als Fallback
 │  └─ NIEMALS User fragen "installiere das"!
 ├─ 3. Build/Setup falls nötig
 │  ├─ run_command("npm run build")
