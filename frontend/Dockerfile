@@ -3,11 +3,11 @@ FROM node:20-alpine AS build
 
 WORKDIR /app
 
-# Copy package files
-COPY package.json ./
+# Copy package files and yarn configuration
+COPY package.json yarn.lock* .yarnrc.yml* ./
 
 # Install dependencies with legacy peer deps to avoid conflicts
-RUN yarn install --ignore-engines
+RUN yarn install --frozen-lockfile || yarn install --ignore-engines
 
 # Copy source files
 COPY . .
