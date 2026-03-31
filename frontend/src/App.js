@@ -1467,7 +1467,7 @@ const SettingsModal = ({ isOpen, onClose, onRefreshLLMStatus }) => {
                           <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 text-xs rounded">Empfohlen</span>
                           <span className="text-sm font-medium text-white">Update Script</span>
                         </div>
-                        <code className="text-emerald-400 font-mono text-sm">./update.sh</code>
+                        <code className="text-emerald-400 font-mono text-sm">bash /app/forgepilot/update.sh</code>
                         <p className="text-xs text-zinc-500 mt-2">Das Script macht alles automatisch: Pull, Stop, Remove, Start</p>
                       </div>
                       
@@ -1477,23 +1477,46 @@ const SettingsModal = ({ isOpen, onClose, onRefreshLLMStatus }) => {
                           <span className="text-sm font-medium text-zinc-400">Oder manuell:</span>
                         </div>
                         <div className="font-mono text-xs space-y-1">
-                          <div className="text-zinc-400">cd /pfad/zu/forgepilot</div>
-                          <div className="text-emerald-400">docker-compose -f docker-compose.unraid.yml pull</div>
-                          <div className="text-emerald-400">docker-compose -f docker-compose.unraid.yml down</div>
-                          <div className="text-emerald-400">docker-compose -f docker-compose.unraid.yml up -d</div>
+                          <div className="text-zinc-400">cd /app/forgepilot</div>
+                          <div className="text-emerald-400">docker-compose -f /app/forgepilot/docker-compose.unraid.yml pull</div>
+                          <div className="text-emerald-400">docker-compose -f /app/forgepilot/docker-compose.unraid.yml down</div>
+                          <div className="text-emerald-400">docker-compose -f /app/forgepilot/docker-compose.unraid.yml up -d</div>
                         </div>
                       </div>
                       
-                      <button
-                        onClick={() => {
-                          navigator.clipboard.writeText('./update.sh');
-                          setMessage({ type: 'success', text: 'Script-Befehl kopiert!' });
-                        }}
-                        className="w-full px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded flex items-center justify-center gap-2"
-                      >
-                        <Terminal size={16} />
-                        Script-Befehl kopieren
-                      </button>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={async () => {
+                            try {
+                              setIsUpdating(true);
+                              const res = await axios.post(`${API}/update/execute`);
+                              setMessage({ type: 'success', text: res.data.message || 'Update wird ausgeführt...' });
+                              setTimeout(() => {
+                                window.location.reload();
+                              }, 60000); // Reload after 1 minute
+                            } catch (e) {
+                              setMessage({ type: 'error', text: e.response?.data?.detail || 'Update fehlgeschlagen' });
+                            } finally {
+                              setIsUpdating(false);
+                            }
+                          }}
+                          disabled={isUpdating}
+                          className="flex-1 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-zinc-700 disabled:cursor-not-allowed text-white rounded flex items-center justify-center gap-2 font-medium"
+                        >
+                          {isUpdating ? <Loader2 className="animate-spin" size={16} /> : <Play size={16} />}
+                          {isUpdating ? 'Update läuft...' : 'Jetzt updaten'}
+                        </button>
+                        <button
+                          onClick={() => {
+                            navigator.clipboard.writeText('bash /app/forgepilot/update.sh');
+                            setMessage({ type: 'success', text: 'Script-Befehl kopiert!' });
+                          }}
+                          className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded flex items-center justify-center gap-2"
+                        >
+                          <Terminal size={16} />
+                          Kopieren
+                        </button>
+                      </div>
                     </div>
                     <div className="p-4 border-t border-zinc-800 flex justify-end">
                       <button onClick={() => setShowUpdateInstructions(false)} className="px-4 py-2 bg-zinc-700 hover:bg-zinc-600 text-white rounded">
@@ -2620,7 +2643,7 @@ const Workspace = () => {
                   <div className="flex items-center gap-2 mb-2">
                     <span className="text-sm font-medium text-white">Update Script</span>
                   </div>
-                  <code className="text-emerald-400 font-mono text-sm">./update.sh</code>
+                  <code className="text-emerald-400 font-mono text-sm">bash /app/forgepilot/update.sh</code>
                   <p className="text-xs text-zinc-500 mt-2">Das Script macht alles automatisch: Pull, Stop, Remove, Start</p>
                 </div>
                 
@@ -2630,16 +2653,16 @@ const Workspace = () => {
                     <span className="text-sm font-medium text-zinc-400">Oder manuell:</span>
                   </div>
                   <div className="font-mono text-sm space-y-1">
-                    <div className="text-zinc-400">cd /pfad/zu/forgepilot</div>
-                    <div className="text-emerald-400">docker-compose -f docker-compose.unraid.yml pull</div>
-                    <div className="text-emerald-400">docker-compose -f docker-compose.unraid.yml down</div>
-                    <div className="text-emerald-400">docker-compose -f docker-compose.unraid.yml up -d</div>
+                    <div className="text-zinc-400">cd /app/forgepilot</div>
+                    <div className="text-emerald-400">docker-compose -f /app/forgepilot/docker-compose.unraid.yml pull</div>
+                    <div className="text-emerald-400">docker-compose -f /app/forgepilot/docker-compose.unraid.yml down</div>
+                    <div className="text-emerald-400">docker-compose -f /app/forgepilot/docker-compose.unraid.yml up -d</div>
                   </div>
                 </div>
                 
                 <button
                   onClick={() => {
-                    navigator.clipboard.writeText('./update.sh');
+                    navigator.clipboard.writeText('bash /app/forgepilot/update.sh');
                   }}
                   className="w-full px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded flex items-center justify-center gap-2"
                 >
