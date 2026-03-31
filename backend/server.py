@@ -925,6 +925,51 @@ async def call_ollama(messages: list, model: str = None) -> str:
         logger.error(f"Ollama call failed: {e}")
         return None
 
+async def generate_alternative_query(original_query: str, attempt: int) -> str:
+    """Generate alternative search query using LLM"""
+    try:
+        prompt = f"""Du bist ein Experte für Web-Recherchen. Die folgende Suchanfrage hat keine guten Ergebnisse geliefert:
+
+"{original_query}"
+
+Generiere eine alternative, bessere Suchanfrage (Versuch {attempt}/3). 
+- Verwende andere Formulierungen
+- Füge relevante technische Begriffe hinzu
+- Versuche spezifischere oder breitere Suchbegriffe
+- Gib nur die neue Suchanfrage zurück, ohne Erklärung
+
+Alternative Suchanfrage:"""
+
+        provider = get_active_llm_provider()
+        
+        if provider == "openai" and openai_client:
+            response = await openai_client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=100,
+                temperature=0.8
+            )
+            alternative = response.choices[0].message.content.strip()
+            return alternative.strip('"').strip()
+        
+        elif provider == "ollama" and ollama_available:
+            alternative = await call_ollama([{"role": "user", "content": prompt}])
+            if alternative:
+                return alternative.strip('"').strip()
+        
+        # Fallback: Simple variation
+        variations = [
+            f"{original_query} best practices",
+            f"{original_query} tutorial guide",
+            f"how to {original_query}"
+        ]
+        return variations[attempt - 1] if attempt <= len(variations) else original_query
+        
+    except Exception as e:
+        logger.error(f"Query generation failed: {e}")
+        # Fallback variations
+        return f"{original_query} tutorial" if attempt == 1 else f"{original_query} best practices"
+
 async def execute_tool(tool_name: str, arguments: dict, workspace_path: Path, project_id: str) -> dict:
     """Execute a tool and return result with continue flag"""
     result = {"output": "", "continue": True, "ask_user": False, "complete": False}
@@ -1028,18 +1073,63 @@ async def execute_tool(tool_name: str, arguments: dict, workspace_path: Path, pr
         elif tool_name == "web_search":
             query = arguments["query"]
             max_results = arguments.get("max_results", 5)
+            max_retries = 3
+            min_acceptable_results = 2
+            
             await add_log(project_id, "info", f"Web-Suche: {query}", "planner")
             await update_agent(project_id, "planner", "running", f"Recherche: {query}")
+            
+            all_results = []
+            current_query = query
+            
             try:
-                from duckduckgo_search import DDGS
-                results = []
-                with DDGS() as ddgs:
-                    for r in ddgs.text(query, max_results=max_results):
-                        results.append(f"• {r.get('title', '')}\n  {r.get('body', '')[:200]}")
-                result["output"] = f"Suchergebnisse für '{query}':\n\n" + "\n\n".join(results) if results else "Keine Ergebnisse"
-                await add_log(project_id, "success", f"Web-Suche: {len(results)} Ergebnisse", "planner")
+                from ddgs import DDGS
+                
+                for attempt in range(1, max_retries + 1):
+                    await add_log(project_id, "info", f"Suchversuch {attempt}/{max_retries}: {current_query}", "planner")
+                    
+                    try:
+                        results = []
+                        with DDGS() as ddgs:
+                            for r in ddgs.text(current_query, max_results=max_results):
+                                results.append(f"• {r.get('title', '')}\n  {r.get('body', '')[:200]}")
+                        
+                        if len(results) >= min_acceptable_results:
+                            # Success! Found enough results
+                            await add_log(project_id, "success", f"✓ Web-Suche erfolgreich: {len(results)} Ergebnisse (Versuch {attempt})", "planner")
+                            result["output"] = f"Suchergebnisse für '{current_query}':\n\n" + "\n\n".join(results)
+                            break
+                        else:
+                            # Not enough results, try alternative query
+                            all_results.extend(results)
+                            await add_log(project_id, "warning", f"⚠️ Nur {len(results)} Ergebnisse gefunden", "planner")
+                            
+                            if attempt < max_retries:
+                                # Generate alternative query using LLM
+                                await add_log(project_id, "info", f"🔄 Generiere alternative Suchanfrage...", "planner")
+                                await update_agent(project_id, "planner", "running", f"Optimiere Suchanfrage ({attempt}/{max_retries})")
+                                
+                                current_query = await generate_alternative_query(query, attempt)
+                                await add_log(project_id, "info", f"💡 Neue Suchanfrage: {current_query}", "planner")
+                            else:
+                                # Last attempt failed, return what we have
+                                if all_results:
+                                    result["output"] = f"Suchergebnisse (nach {max_retries} Versuchen, {len(all_results)} Ergebnisse):\n\n" + "\n\n".join(all_results)
+                                    await add_log(project_id, "warning", f"⚠️ Web-Suche: Nur {len(all_results)} Ergebnisse nach {max_retries} Versuchen", "planner")
+                                else:
+                                    result["output"] = f"Keine ausreichenden Ergebnisse gefunden nach {max_retries} Versuchen.\n\nVersuchte Queries:\n• {query}\n• {current_query}"
+                                    await add_log(project_id, "error", f"✗ Web-Suche: Keine Ergebnisse nach {max_retries} Versuchen", "planner")
+                    
+                    except Exception as search_error:
+                        logger.error(f"Search attempt {attempt} failed: {search_error}")
+                        if attempt == max_retries:
+                            raise
+                        # Continue to next attempt
+                        await add_log(project_id, "warning", f"⚠️ Suchfehler bei Versuch {attempt}: {str(search_error)}", "planner")
+                        
             except Exception as e:
                 result["output"] = f"Web-Suche fehlgeschlagen: {str(e)}"
+                await add_log(project_id, "error", f"✗ Web-Suche fehlgeschlagen: {str(e)}", "planner")
         
         elif tool_name == "test_code":
             test_type = arguments["test_type"]
