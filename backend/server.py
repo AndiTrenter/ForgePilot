@@ -977,7 +977,10 @@ async def execute_tool(tool_name: str, arguments: dict, workspace_path: Path, pr
             else:
                 await add_log(project_id, "info", f"Befehl: {command}", "tester")
                 try:
-                    proc = subprocess.run(command, shell=True, cwd=workspace_path, capture_output=True, text=True, timeout=60)
+                    # Ensure PATH includes /usr/bin where node is located
+                    env = os.environ.copy()
+                    env['PATH'] = '/usr/bin:/usr/local/bin:' + env.get('PATH', '')
+                    proc = subprocess.run(command, shell=True, cwd=workspace_path, capture_output=True, text=True, timeout=60, env=env)
                     output = proc.stdout + proc.stderr
                     if proc.returncode == 0:
                         await add_log(project_id, "success", f"Befehl erfolgreich: {command}", "tester")
@@ -1024,9 +1027,12 @@ async def execute_tool(tool_name: str, arguments: dict, workspace_path: Path, pr
             if test_type == "syntax":
                 errors = []
                 js_files = list(workspace_path.rglob("*.js"))
+                # Ensure PATH includes /usr/bin where node is located
+                env = os.environ.copy()
+                env['PATH'] = '/usr/bin:/usr/local/bin:' + env.get('PATH', '')
                 for f in js_files:
                     try:
-                        subprocess.run(["node", "--check", str(f)], capture_output=True, check=True)
+                        subprocess.run(["node", "--check", str(f)], capture_output=True, check=True, env=env)
                     except subprocess.CalledProcessError as e:
                         errors.append(f"{f.name}: {e.stderr.decode()[:200]}")
                 
