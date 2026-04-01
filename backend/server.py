@@ -1207,6 +1207,11 @@ async def execute_tool(tool_name: str, arguments: dict, workspace_path: Path, pr
                 else:
                     result["output"] = f"❌ Python Lint Errors:\n{proc.stderr}"
                     await add_log(project_id, "error", f"Lint errors in {path}", "reviewer")
+                
+                await update_agent(project_id, "reviewer", "completed", "Lint done")
+            except Exception as e:
+                result["output"] = f"❌ Lint error: {str(e)}"
+                await add_log(project_id, "error", f"Lint failed: {str(e)}", "reviewer")
         
         elif tool_name == "screenshot":
             url = arguments.get("url", "")
@@ -1262,16 +1267,6 @@ asyncio.run(take_screenshot())
                 result["output"] = f"❌ Screenshot error: {str(e)}"
             
             await update_agent(project_id, "tester", "completed", "Screenshot done")
-
-                
-                await update_agent(project_id, "reviewer", "completed", "Lint done")
-            except Exception as e:
-                result["output"] = f"❌ Lint error: {str(e)}"
-                await add_log(project_id, "error", f"Lint failed: {str(e)}", "reviewer")
-
-                result["output"] = f"✓ Datei gelöscht: {arguments['path']}"
-            else:
-                result["output"] = f"Datei nicht gefunden: {arguments['path']}"
         
         elif tool_name == "list_files":
             files = []
