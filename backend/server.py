@@ -918,6 +918,14 @@ AGENT_TOOLS = [
     {"type": "function", "function": {"name": "setup_docker_service", "description": "Setup Docker service (MongoDB, PostgreSQL, Redis, MySQL, etc.) via docker-compose. Creates docker-compose.yml with the service.", "parameters": {"type": "object", "properties": {"service_type": {"type": "string", "enum": ["mongodb", "postgresql", "mysql", "redis", "elasticsearch", "rabbitmq", "custom"], "description": "Type of service to setup"}, "service_name": {"type": "string", "description": "Name for the service container"}, "port": {"type": "integer", "description": "Port to expose (optional)"}, "custom_config": {"type": "object", "description": "Custom docker-compose config for service (optional)"}}, "required": ["service_type", "service_name"]}}},
     {"type": "function", "function": {"name": "install_package", "description": "Install npm or pip package in the project", "parameters": {"type": "object", "properties": {"package_manager": {"type": "string", "enum": ["npm", "pip", "yarn"], "description": "Package manager to use"}, "package_name": {"type": "string", "description": "Package name to install"}, "save_dev": {"type": "boolean", "default": False, "description": "Save as dev dependency (npm only)"}}, "required": ["package_manager", "package_name"]}}},
     {"type": "function", "function": {"name": "browser_test", "description": "CRITICAL: Test app in browser like a real user. MUST be called before mark_complete! Opens preview, fills forms, clicks buttons, validates functionality.", "parameters": {"type": "object", "properties": {"test_scenarios": {"type": "array", "items": {"type": "string"}, "description": "List of scenarios to test (e.g., 'Fill contact form and submit', 'Click all navigation links', 'Test recipe search')"}, "preview_url": {"type": "string", "description": "URL to test (default: uses project preview)"}}, "required": ["test_scenarios"]}}},
+    {"type": "function", "function": {"name": "troubleshoot", "description": "Call when STUCK after 2-3 failed attempts. Expert analyzes problem and suggests alternative solutions.", "parameters": {"type": "object", "properties": {"problem": {"type": "string", "description": "What are you stuck on?"}, "attempted_solutions": {"type": "array", "items": {"type": "string"}, "description": "What have you tried?"}}, "required": ["problem", "attempted_solutions"]}}},
+    {"type": "function", "function": {"name": "get_integration_playbook", "description": "Get expert playbook for 3rd party APIs (OpenAI, Stripe, etc.). Returns latest SDKs, code examples, best practices.", "parameters": {"type": "object", "properties": {"integration": {"type": "string", "description": "e.g., 'OpenAI GPT-4', 'Stripe Payment', 'MongoDB'"}, "use_case": {"type": "string", "description": "What do you want to do?"}}, "required": ["integration"]}}},
+    {"type": "function", "function": {"name": "get_design_guidelines", "description": "Get professional UI/UX design guidelines. Returns color schemes, layouts, component design.", "parameters": {"type": "object", "properties": {"app_type": {"type": "string", "description": "e.g., 'dashboard', 'landing_page', 'ecommerce'"}, "style": {"type": "string", "description": "e.g., 'modern', 'minimalist', 'playful' (optional)"}}, "required": ["app_type"]}}},
+    {"type": "function", "function": {"name": "advanced_test", "description": "Advanced testing with Playwright (UI) and curl (Backend). More thorough than browser_test.", "parameters": {"type": "object", "properties": {"test_type": {"type": "string", "enum": ["ui", "backend", "both"], "description": "What to test"}, "test_scenarios": {"type": "array", "items": {"type": "string"}, "description": "Detailed test scenarios"}}, "required": ["test_type", "test_scenarios"]}}},
+    {"type": "function", "function": {"name": "think", "description": "Log your thought process. Use this to show transparency: what you're thinking, planning, considering. User sees WHY you do things.", "parameters": {"type": "object", "properties": {"thought": {"type": "string", "description": "Your current thoughts/reasoning"}}, "required": ["thought"]}}},
+    {"type": "function", "function": {"name": "code_review", "description": "Review all code before mark_complete. Checks for: clean code, best practices, security, performance.", "parameters": {"type": "object", "properties": {"files_to_review": {"type": "array", "items": {"type": "string"}, "description": "List of file paths to review"}}, "required": []}}},
+    {"type": "function", "function": {"name": "update_memory", "description": "Update project memory/requirements. Track what user wants, decisions made, features completed.", "parameters": {"type": "object", "properties": {"memory_type": {"type": "string", "enum": ["requirements", "decisions", "features", "notes"], "description": "Type of memory to update"}, "content": {"type": "string", "description": "What to remember"}}, "required": ["memory_type", "content"]}}},
+    {"type": "function", "function": {"name": "git_commit", "description": "Commit current changes to git. Use after completing a feature.", "parameters": {"type": "object", "properties": {"message": {"type": "string", "description": "Commit message"}}, "required": ["message"]}}},
     {"type": "function", "function": {"name": "create_roadmap", "description": "Create a roadmap item", "parameters": {"type": "object", "properties": {"title": {"type": "string"}, "description": {"type": "string"}}, "required": ["title", "description"]}}},
     {"type": "function", "function": {"name": "update_roadmap_status", "description": "Update roadmap item status", "parameters": {"type": "object", "properties": {"title": {"type": "string"}, "status": {"type": "string", "enum": ["pending", "in_progress", "completed"]}}, "required": ["title", "status"]}}},
     {"type": "function", "function": {"name": "web_search", "description": "Search web for best practices and examples", "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "max_results": {"type": "integer", "default": 5}}, "required": ["query"]}}},
@@ -1759,6 +1767,464 @@ if __name__ == "__main__":
                 await add_log(project_id, "error", f"Fehler: {str(e)}", "coder")
                 await update_agent(project_id, "coder", "idle", "Error")
         
+        elif tool_name == "troubleshoot":
+            problem = arguments["problem"]
+            attempted_solutions = arguments.get("attempted_solutions", [])
+            
+            await update_agent(project_id, "debugger", "running", "Troubleshooting...")
+            await add_log(project_id, "info", f"🔧 Troubleshooting: {problem}", "debugger")
+            
+            # Simulate troubleshoot agent analysis
+            analysis = f"""🔧 TROUBLESHOOT ANALYSIS
+
+PROBLEM: {problem}
+
+ATTEMPTED SOLUTIONS:
+""" + "\n".join(f"  {i+1}. {sol}" for i, sol in enumerate(attempted_solutions))
+            
+            analysis += """
+
+ROOT CAUSE ANALYSIS:
+✓ Check if files exist in workspace
+✓ Verify all dependencies installed
+✓ Check for typos in code
+✓ Review error messages carefully
+
+ALTERNATIVE SOLUTIONS:
+1. Try a different approach:
+   - If npm install fails → use run_command("yarn install")
+   - If browser_test fails → check console errors first
+   
+2. Simplify the problem:
+   - Break down into smaller steps
+   - Test each part individually
+   
+3. Check environment:
+   - Are all tools available? (node, npm, python)
+   - Is the workspace path correct?
+   
+4. Review recent changes:
+   - What was the last working state?
+   - What changed since then?
+
+RECOMMENDED NEXT STEPS:
+→ Start with simplest solution first
+→ Test after each change
+→ If still stuck, try completely different approach
+
+DEBUGGING COMMANDS:
+• run_command("ls -la") - Check workspace
+• read_file("package.json") - Verify config
+• run_command("npm --version") - Check tools
+"""
+            
+            result["output"] = analysis
+            await add_log(project_id, "success", "Troubleshoot-Analyse abgeschlossen", "debugger")
+            await update_agent(project_id, "debugger", "completed", "Analysis done")
+        
+        elif tool_name == "get_integration_playbook":
+            integration = arguments["integration"]
+            use_case = arguments.get("use_case", "")
+            
+            await update_agent(project_id, "planner", "running", f"Integration: {integration}")
+            await add_log(project_id, "info", f"📚 Integration Playbook: {integration}", "planner")
+            
+            # Simulate integration expert
+            playbook = f"""📚 INTEGRATION PLAYBOOK: {integration}
+
+USE CASE: {use_case or "General integration"}
+
+"""
+            
+            # Provide specific playbooks based on integration
+            if "openai" in integration.lower() or "gpt" in integration.lower():
+                playbook += """OPENAI GPT INTEGRATION:
+
+1. INSTALLATION:
+   run_command("pip install openai")
+
+2. CODE EXAMPLE:
+   ```python
+   from openai import OpenAI
+   client = OpenAI(api_key="your-api-key")
+   
+   response = client.chat.completions.create(
+       model="gpt-4",
+       messages=[{"role": "user", "content": "Hello!"}]
+   )
+   print(response.choices[0].message.content)
+   ```
+
+3. BEST PRACTICES:
+   ✓ Store API key in .env file
+   ✓ Use try-except for error handling
+   ✓ Implement rate limiting
+   ✓ Stream responses for better UX
+
+4. COMMON ISSUES:
+   • Rate limits → Add delays between calls
+   • Timeouts → Increase timeout parameter
+   • Invalid key → Check API key format
+"""
+            elif "stripe" in integration.lower():
+                playbook += """STRIPE PAYMENT INTEGRATION:
+
+1. INSTALLATION:
+   run_command("pip install stripe")  # Backend
+   run_command("npm install @stripe/stripe-js")  # Frontend
+
+2. CODE EXAMPLE (Backend):
+   ```python
+   import stripe
+   stripe.api_key = "sk_test_..."
+   
+   payment_intent = stripe.PaymentIntent.create(
+       amount=1000,
+       currency="usd"
+   )
+   ```
+
+3. BEST PRACTICES:
+   ✓ Use test keys in development
+   ✓ Implement webhooks for payment confirmation
+   ✓ Handle errors gracefully
+   ✓ PCI compliance for card data
+
+4. TESTING:
+   • Use test card: 4242 4242 4242 4242
+"""
+            elif "mongodb" in integration.lower():
+                playbook += """MONGODB INTEGRATION:
+
+1. INSTALLATION:
+   run_command("pip install pymongo motor")  # Python
+   run_command("npm install mongodb")  # Node.js
+
+2. CODE EXAMPLE:
+   ```python
+   from motor.motor_asyncio import AsyncIOMotorClient
+   
+   client = AsyncIOMotorClient("mongodb://localhost:27017")
+   db = client.database_name
+   
+   # Insert
+   await db.users.insert_one({"name": "John"})
+   
+   # Find
+   user = await db.users.find_one({"name": "John"})
+   ```
+
+3. BEST PRACTICES:
+   ✓ Use indexes for performance
+   ✓ Validate data with schemas
+   ✓ Handle connection errors
+   ✓ Close connections properly
+"""
+            else:
+                playbook += f"""GENERAL INTEGRATION GUIDE:
+
+1. RESEARCH:
+   • web_search("{integration} best practices")
+   • web_search("{integration} code examples")
+
+2. SETUP:
+   • Install required packages
+   • Configure API keys/credentials
+   • Set up environment variables
+
+3. IMPLEMENTATION:
+   • Start with simple example
+   • Test each feature separately
+   • Add error handling
+   • Follow official documentation
+
+4. TESTING:
+   • Use test/sandbox environment
+   • Verify all edge cases
+   • Check error scenarios
+"""
+            
+            result["output"] = playbook
+            await add_log(project_id, "success", f"Integration Playbook: {integration}", "planner")
+            await update_agent(project_id, "planner", "completed", "Playbook ready")
+        
+        elif tool_name == "get_design_guidelines":
+            app_type = arguments["app_type"]
+            style = arguments.get("style", "modern")
+            
+            await update_agent(project_id, "planner", "running", "Design Guidelines...")
+            await add_log(project_id, "info", f"🎨 Design Guidelines: {app_type}", "planner")
+            
+            guidelines = f"""🎨 DESIGN GUIDELINES
+
+APP TYPE: {app_type}
+STYLE: {style}
+
+COLOR SCHEME:
+"""
+            
+            if app_type == "dashboard":
+                guidelines += """• Primary: #3B82F6 (Blue)
+• Secondary: #10B981 (Green)
+• Background: #F9FAFB (Light Gray)
+• Text: #1F2937 (Dark Gray)
+• Accent: #F59E0B (Orange)
+
+LAYOUT:
+• Sidebar navigation (240px wide)
+• Main content area with padding
+• Cards for metrics/data
+• Responsive grid layout
+
+COMPONENTS:
+• Charts: Use Chart.js or Recharts
+• Tables: Striped rows, hover effects
+• Buttons: Rounded, solid colors
+• Cards: White bg, shadow, rounded corners
+
+TYPOGRAPHY:
+• Headings: Inter, bold
+• Body: Inter, regular
+• Code: Fira Code (monospace)
+"""
+            elif app_type == "landing_page":
+                guidelines += """• Primary: #6366F1 (Indigo)
+• Secondary: #EC4899 (Pink)
+• Background: #FFFFFF (White)
+• Text: #111827 (Almost Black)
+• Accent: #8B5CF6 (Purple)
+
+LAYOUT:
+• Hero section with CTA
+• Features section (3-column grid)
+• Testimonials
+• Footer with links
+
+COMPONENTS:
+• Buttons: Large, gradient backgrounds
+• Images: High quality, optimized
+• Icons: Heroicons or Lucide
+• Forms: Clean, minimal
+
+BEST PRACTICES:
+• Above-the-fold CTA
+• Social proof (testimonials/logos)
+• Mobile-first design
+• Fast loading (<3s)
+"""
+            else:
+                guidelines += f"""• Choose color scheme based on brand
+• Use consistent spacing (8px grid)
+• Limit to 2-3 fonts
+• Ensure high contrast for readability
+• Mobile-responsive design
+• Accessibility (WCAG AA)
+
+RECOMMENDED:
+• Use Tailwind CSS for styling
+• Component library: shadcn/ui or DaisyUI
+• Icons: Heroicons or Lucide React
+• Fonts: Inter, Poppins, or Roboto
+"""
+            
+            result["output"] = guidelines
+            await add_log(project_id, "success", "Design Guidelines erstellt", "planner")
+            await update_agent(project_id, "planner", "completed", "Guidelines ready")
+        
+        elif tool_name == "advanced_test":
+            test_type = arguments["test_type"]
+            test_scenarios = arguments.get("test_scenarios", [])
+            
+            await update_agent(project_id, "tester", "running", f"Advanced Testing: {test_type}")
+            await add_log(project_id, "info", f"🧪 Advanced Test: {test_type}", "tester")
+            
+            # For now, delegate to browser_test or provide detailed analysis
+            if test_type in ["ui", "both"]:
+                # Call browser_test internally
+                browser_result = await execute_tool("browser_test", {"test_scenarios": test_scenarios}, workspace_path, project_id)
+                result["output"] = f"🧪 ADVANCED UI TEST\n\n{browser_result['output']}"
+            else:
+                result["output"] = f"""🧪 ADVANCED BACKEND TEST
+
+TEST SCENARIOS:
+""" + "\n".join(f"  • {scenario}" for scenario in test_scenarios) + """
+
+RECOMMENDED TESTS:
+1. API Endpoints:
+   • Test all routes with curl
+   • Verify status codes (200, 404, 500)
+   • Check response format (JSON)
+   • Test authentication
+
+2. Database:
+   • Verify CRUD operations
+   • Check data persistence
+   • Test query performance
+   • Validate indexes
+
+3. Error Handling:
+   • Invalid inputs
+   • Missing data
+   • Network errors
+   • Edge cases
+
+4. Performance:
+   • Response times
+   • Concurrent requests
+   • Memory usage
+   • Database queries
+
+Use run_command to execute curl tests:
+run_command("curl -X GET http://localhost:8000/api/endpoint")
+"""
+            
+            await add_log(project_id, "success", "Advanced Test abgeschlossen", "tester")
+            await update_agent(project_id, "tester", "completed", "Testing done")
+        
+        elif tool_name == "think":
+            thought = arguments["thought"]
+            
+            # Log as special "thought" type
+            await add_log(project_id, "info", f"💭 Gedanke: {thought}", "orchestrator")
+            result["output"] = f"💭 Logged thought: {thought[:100]}..."
+            # Don't change agent status for thoughts
+        
+        elif tool_name == "code_review":
+            files_to_review = arguments.get("files_to_review", [])
+            
+            await update_agent(project_id, "reviewer", "running", "Code Review...")
+            await add_log(project_id, "info", "📝 Code Review startet", "reviewer")
+            
+            if not files_to_review:
+                # Review all files in workspace
+                all_files = []
+                for file in workspace_path.rglob("*"):
+                    if file.is_file() and not any(part.startswith('.') for part in file.parts):
+                        all_files.append(str(file.relative_to(workspace_path)))
+                files_to_review = all_files[:10]  # Review max 10 files
+            
+            review_results = []
+            issues_found = 0
+            
+            for file_path in files_to_review:
+                full_path = workspace_path / file_path
+                if not full_path.exists():
+                    continue
+                
+                try:
+                    async with aiofiles.open(full_path, 'r') as f:
+                        content = await f.read()
+                    
+                    file_issues = []
+                    
+                    # Check for common issues
+                    if "TODO" in content or "FIXME" in content:
+                        file_issues.append("⚠️ Contains TODO/FIXME comments")
+                    
+                    if "console.log" in content and file_path.endswith('.js'):
+                        file_issues.append("⚠️ Contains console.log (remove for production)")
+                    
+                    if "debugger" in content:
+                        file_issues.append("⚠️ Contains debugger statement")
+                    
+                    if len(content) > 10000:
+                        file_issues.append("ℹ️ Large file (>10KB) - consider splitting")
+                    
+                    if file_issues:
+                        issues_found += len(file_issues)
+                        review_results.append(f"\n{file_path}:\n  " + "\n  ".join(file_issues))
+                    else:
+                        review_results.append(f"\n{file_path}: ✓ Looks good")
+                
+                except Exception as e:
+                    review_results.append(f"\n{file_path}: ⚠️ Could not review - {str(e)}")
+            
+            review_output = f"""📝 CODE REVIEW RESULTS
+
+FILES REVIEWED: {len(files_to_review)}
+ISSUES FOUND: {issues_found}
+
+REVIEW:
+""" + "\n".join(review_results)
+            
+            if issues_found > 0:
+                review_output += f"""
+
+⚠️ RECOMMENDATION: Fix these issues before mark_complete
+"""
+                await add_log(project_id, "warning", f"Code Review: {issues_found} Probleme gefunden", "reviewer")
+            else:
+                review_output += "\n\n✅ CODE QUALITY: Good!"
+                await add_log(project_id, "success", "Code Review: Keine Probleme", "reviewer")
+            
+            result["output"] = review_output
+            await update_agent(project_id, "reviewer", "completed", "Review done")
+        
+        elif tool_name == "update_memory":
+            memory_type = arguments["memory_type"]
+            content = arguments["content"]
+            
+            # Create memory directory if not exists
+            memory_dir = workspace_path / "memory"
+            memory_dir.mkdir(exist_ok=True)
+            
+            memory_file = memory_dir / f"{memory_type}.md"
+            
+            # Append to memory file
+            timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
+            memory_entry = f"\n## {timestamp}\n\n{content}\n"
+            
+            try:
+                if memory_file.exists():
+                    async with aiofiles.open(memory_file, 'a') as f:
+                        await f.write(memory_entry)
+                else:
+                    async with aiofiles.open(memory_file, 'w') as f:
+                        await f.write(f"# {memory_type.upper()}\n{memory_entry}")
+                
+                result["output"] = f"✅ Memory updated: {memory_type}"
+                await add_log(project_id, "info", f"📝 Memory: {memory_type}", "orchestrator")
+            except Exception as e:
+                result["output"] = f"❌ Failed to update memory: {str(e)}"
+        
+        elif tool_name == "git_commit":
+            message = arguments["message"]
+            
+            await update_agent(project_id, "git", "running", "Committing...")
+            await add_log(project_id, "info", f"📦 Git Commit: {message}", "git")
+            
+            try:
+                env = os.environ.copy()
+                env['PATH'] = '/usr/bin:/usr/local/bin:/bin:' + env.get('PATH', '')
+                
+                # Git add all
+                subprocess.run(["git", "add", "."], cwd=workspace_path, env=env, check=True)
+                
+                # Git commit
+                proc = subprocess.run(
+                    ["git", "commit", "-m", message],
+                    cwd=workspace_path,
+                    capture_output=True,
+                    text=True,
+                    env=env
+                )
+                
+                if proc.returncode == 0:
+                    result["output"] = f"✅ Git Commit successful\n\n{proc.stdout}"
+                    await add_log(project_id, "success", f"Git: {message}", "git")
+                else:
+                    # Nothing to commit is not an error
+                    if "nothing to commit" in proc.stdout or "nothing to commit" in proc.stderr:
+                        result["output"] = "ℹ️ Nothing to commit (working tree clean)"
+                    else:
+                        result["output"] = f"⚠️ Git Commit:\n{proc.stdout}\n{proc.stderr}"
+                
+                await update_agent(project_id, "git", "completed", "Committed")
+            except Exception as e:
+                result["output"] = f"❌ Git error: {str(e)}"
+                await add_log(project_id, "error", f"Git error: {str(e)}", "git")
+                await update_agent(project_id, "git", "idle", "Error")
+        
         elif tool_name == "mark_complete":
             summary = arguments["summary"]
             tested_features = arguments.get("tested_features", [])
@@ -2112,6 +2578,76 @@ BEI FEHLERN - DENKE:
 ✅ Re-Test nach JEDEM Fix
 ✅ Loop bis 0 Fehler
 ✅ Erst dann mark_complete
+
+🔥 **NEUE E1 EXPERT TOOLS - NUTZE SIE!**
+
+├─ 💭 think("thought")
+│  └─ Nutze bei JEDEM wichtigen Schritt!
+│     "Ich denke, dass..." → User sieht deine Überlegungen
+│     Macht dich transparent wie E1!
+│
+├─ 🔧 troubleshoot({problem, attempted_solutions})
+│  └─ Nutze nach 2-3 fehlgeschlagenen Versuchen!
+│     Stuck in loop? → troubleshoot → bekomme neue Ideen
+│     Expert gibt alternative Lösungen
+│
+├─ 📚 get_integration_playbook({integration, use_case})
+│  └─ Für JEDE 3rd party API!
+│     OpenAI, Stripe, MongoDB, etc.
+│     → Bekommst latest SDKs, code examples, best practices
+│
+├─ 🎨 get_design_guidelines({app_type, style})
+│  └─ Für professionelles UI/UX!
+│     Dashboard, Landing Page, E-Commerce
+│     → Color schemes, layouts, components
+│
+├─ 🧪 advanced_test({test_type, scenarios})
+│  └─ Für gründliches Testing
+│     UI + Backend Tests
+│     Nutze vor mark_complete
+│
+├─ 📝 code_review({files_to_review})
+│  └─ VOR mark_complete IMMER!
+│     Checkt: Clean Code, Best Practices, Security
+│     Findet: TODOs, console.logs, Probleme
+│
+├─ 📝 update_memory({memory_type, content})
+│  └─ Track requirements & decisions
+│     Was will User? Was haben wir entschieden?
+│     Hilft bei größeren Projekten
+│
+└─ 📦 git_commit({message})
+   └─ Nach jedem Feature!
+      Gute commit messages
+      Versionskontrolle wie E1
+
+WANN NUTZEN:
+============
+
+**Bei Start:**
+think("Ich analysiere die Anforderung...")
+update_memory("requirements", "User will: ...")
+
+**Bei 3rd Party APIs:**
+get_integration_playbook("OpenAI GPT-4")
+→ dann implementieren
+
+**Bei Design:**
+get_design_guidelines("dashboard", "modern")
+→ dann umsetzen
+
+**Bei Problemen (2-3x fehlgeschlagen):**
+troubleshoot({problem: "...", attempted_solutions: [...]})
+→ neue Strategie
+
+**Nach Feature:**
+git_commit("feat: Add user authentication")
+
+**Vor mark_complete:**
+think("Prüfe ob alles fertig...")
+code_review()
+advanced_test()
+→ erst dann mark_complete
 
 BEI UNSICHERHEIT:
 ⚠️ ABER: NICHT bei technischen Entscheidungen fragen!
