@@ -3306,8 +3306,10 @@ async def create_project(project: ProjectCreate):
     return project_obj
 
 @api_router.get("/projects", response_model=List[Project])
-async def get_projects():
-    return await db.projects.find({}, {"_id": 0}).sort("created_at", -1).to_list(100)
+async def get_projects(include_archived: bool = False):
+    """Get all projects, optionally including archived ones"""
+    query = {} if include_archived else {"archived": {"$ne": True}}
+    return await db.projects.find(query, {"_id": 0}).sort("created_at", -1).to_list(100)
 
 @api_router.get("/projects/{project_id}", response_model=Project)
 async def get_project(project_id: str):
@@ -3327,6 +3329,114 @@ async def delete_project(project_id: str):
     await db.roadmap.delete_many({"project_id": project_id})
     await db.logs.delete_many({"project_id": project_id})
     return {"message": "Deleted"}
+
+
+
+@api_router.delete("/projects/{project_id}")
+async def delete_project(project_id: str):
+    """Delete a project completely"""
+    try:
+        # Delete workspace folder
+        workspace_path = Path(f"/app/workspaces/{project_id}")
+        if workspace_path.exists():
+            shutil.rmtree(workspace_path)
+        
+        # Delete from database
+        await projects_collection.delete_one({"_id": project_id})
+        await logs_collection.delete_many({"project_id": project_id})
+        await agents_collection.delete_many({"project_id": project_id})
+        await roadmap_collection.delete_many({"project_id": project_id})
+        
+        return {"success": True, "message": f"Projekt {project_id} gelöscht"}
+    except Exception as e:
+        logger.error(f"Delete project error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/projects/{project_id}/download")
+async def download_project(project_id: str):
+    """Download project as ZIP file"""
+    try:
+        from fastapi.responses import FileResponse
+        import zipfile
+        
+        workspace_path = Path(f"/app/workspaces/{project_id}")
+        if not workspace_path.exists():
+            raise HTTPException(status_code=404, detail="Projekt nicht gefunden")
+        
+        # Create ZIP file
+        zip_path = Path(f"/tmp/{project_id}.zip")
+        
+        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            for file in workspace_path.rglob("*"):
+                if file.is_file() and not any(part.startswith('.') for part in file.parts):
+                    arcname = file.relative_to(workspace_path)
+                    zipf.write(file, arcname)
+        
+        return FileResponse(
+            path=str(zip_path),
+            media_type="application/zip",
+            filename=f"project_{project_id}.zip"
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Download project error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.post("/projects/{project_id}/archive")
+async def archive_project(project_id: str):
+    """Archive a completed project"""
+    try:
+        result = await projects_collection.update_one(
+            {"_id": project_id},
+            {"$set": {
+                "archived": True,
+                "archived_at": datetime.now(timezone.utc).isoformat()
+            }}
+        )
+        
+        if result.modified_count == 0:
+            raise HTTPException(status_code=404, detail="Projekt nicht gefunden")
+        
+        return {"success": True, "message": "Projekt archiviert"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Archive project error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/projects/archived/list")
+async def get_archived_projects():
+    """Get all archived projects"""
+    try:
+        cursor = projects_collection.find({"archived": True}).sort("archived_at", -1)
+        projects = await cursor.to_list(100)
+        return projects
+    except Exception as e:
+        logger.error(f"Get archived projects error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.post("/projects/{project_id}/unarchive")
+async def unarchive_project(project_id: str):
+    """Restore an archived project"""
+    try:
+        result = await projects_collection.update_one(
+            {"_id": project_id},
+            {"$set": {
+                "archived": False,
+                "unarchived_at": datetime.now(timezone.utc).isoformat()
+            }}
+        )
+        
+        if result.modified_count == 0:
+            raise HTTPException(status_code=404, detail="Projekt nicht gefunden")
+        
+        return {"success": True, "message": "Projekt reaktiviert"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Unarchive project error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 # ============== CHAT (AUTONOMOUS) ==============
 
