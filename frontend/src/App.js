@@ -9,7 +9,8 @@ import {
   Folder, File, ChevronDown, Save, LayoutPanelLeft, GitCommit,
   Check, Circle, ArrowRight, Lock, Globe, Upload, Search,
   ExternalLink, Mic, MicOff, Square, PanelRightClose, PanelRightOpen,
-  Maximize2, Minimize2, Rocket, Paperclip, Image as ImageIcon
+  Maximize2, Minimize2, Rocket, Paperclip, Image as ImageIcon,
+  Trash2, Download, Archive, ArchiveRestore
 } from "lucide-react";
 import DeployModal from "./DeployModal";
 import Prism from 'prismjs';
@@ -40,10 +41,14 @@ const PREVIEW_BASE = getPreviewBase();
 
 // ============== API Functions ==============
 const api = {
-  getProjects: () => axios.get(`${API}/projects`),
+  getProjects: (includeArchived = false) => axios.get(`${API}/projects`, { params: { include_archived: includeArchived } }),
   createProject: (data) => axios.post(`${API}/projects`, data),
   getProject: (id) => axios.get(`${API}/projects/${id}`),
   deleteProject: (id) => axios.delete(`${API}/projects/${id}`),
+  downloadProject: (id) => axios.get(`${API}/projects/${id}/download`, { responseType: 'blob' }),
+  archiveProject: (id) => axios.post(`${API}/projects/${id}/archive`),
+  unarchiveProject: (id) => axios.post(`${API}/projects/${id}/unarchive`),
+  getArchivedProjects: () => axios.get(`${API}/projects/archived/list`),
   getMessages: (projectId) => axios.get(`${API}/projects/${projectId}/messages`),
   getAgents: (projectId) => axios.get(`${API}/projects/${projectId}/agents`),
   getLogs: (projectId) => axios.get(`${API}/projects/${projectId}/logs`),
@@ -645,6 +650,48 @@ const LogDetailModal = ({ log, onClose }) => {
             className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded transition-colors"
           >
             Schließen
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ============== CONFIRMATION MODAL ==============
+
+const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message, confirmText = "Bestätigen", confirmColor = "bg-red-600 hover:bg-red-500" }) => {
+  if (!isOpen) return null;
+  
+  return (
+    <div 
+      className="fixed inset-0 bg-black/80 flex items-center justify-center z-[300] p-4"
+      onClick={onClose}
+    >
+      <div 
+        className="bg-zinc-900 border border-zinc-700 rounded-lg w-full max-w-md shadow-2xl"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="p-4 border-b border-zinc-800">
+          <h3 className="text-lg font-medium text-white">{title}</h3>
+        </div>
+        <div className="p-4">
+          <p className="text-zinc-300">{message}</p>
+        </div>
+        <div className="p-4 border-t border-zinc-800 flex justify-end gap-2">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded transition-colors"
+          >
+            Abbrechen
+          </button>
+          <button
+            onClick={() => {
+              onConfirm();
+              onClose();
+            }}
+            className={`px-4 py-2 text-white rounded transition-colors ${confirmColor}`}
+          >
+            {confirmText}
           </button>
         </div>
       </div>
@@ -1656,11 +1703,14 @@ const StartScreen = () => {
   const [projectType, setProjectType] = useState("fullstack");
   const [isLoading, setIsLoading] = useState(false);
   const [recentProjects, setRecentProjects] = useState([]);
+  const [archivedProjects, setArchivedProjects] = useState([]);
+  const [showArchived, setShowArchived] = useState(false);
   const [showGitHubModal, setShowGitHubModal] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [ollamaStatus, setOllamaStatus] = useState({ available: false });
   const [useOllama, setUseOllama] = useState(false);
+  const [confirmModal, setConfirmModal] = useState({ isOpen: false, projectId: null, action: null });
   
   const toggleOllama = async () => {
     try {
@@ -1671,9 +1721,86 @@ const StartScreen = () => {
     }
   };
 
+  const loadProjects = async () => {
+    try {
+      const [activeRes, archivedRes] = await Promise.all([
+        api.getProjects(false),
+        api.getArchivedProjects()
+      ]);
+      setRecentProjects(activeRes.data.slice(0, 12));
+      setArchivedProjects(archivedRes.data || []);
+    } catch (e) {
+      console.error('Failed to load projects:', e);
+    }
+  };
+
   useEffect(() => {
-    api.getProjects().then(res => setRecentProjects(res.data.slice(0, 6))).catch(() => {});
+    loadProjects();
   }, []);
+
+  const handleDeleteProject = async (projectId) => {
+    try {
+      await api.deleteProject(projectId);
+      await loadProjects();
+    } catch (e) {
+      console.error('Failed to delete project:', e);
+      alert('Fehler beim Löschen des Projekts');
+    }
+  };
+
+  const handleDownloadProject = async (projectId, projectName) => {
+    try {
+      const response = await api.downloadProject(projectId);
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `${projectName || projectId}.zip`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error('Failed to download project:', e);
+      alert('Fehler beim Download des Projekts');
+    }
+  };
+
+  const handleArchiveProject = async (projectId) => {
+    try {
+      await api.archiveProject(projectId);
+      await loadProjects();
+    } catch (e) {
+      console.error('Failed to archive project:', e);
+      alert('Fehler beim Archivieren des Projekts');
+    }
+  };
+
+  const handleUnarchiveProject = async (projectId) => {
+    try {
+      await api.unarchiveProject(projectId);
+      await loadProjects();
+    } catch (e) {
+      console.error('Failed to unarchive project:', e);
+      alert('Fehler beim Entarchivieren des Projekts');
+    }
+  };
+
+  const openConfirmModal = (projectId, action) => {
+    setConfirmModal({ isOpen: true, projectId, action });
+  };
+
+  const closeConfirmModal = () => {
+    setConfirmModal({ isOpen: false, projectId: null, action: null });
+  };
+
+  const handleConfirmAction = () => {
+    const { projectId, action } = confirmModal;
+    if (action === 'delete') {
+      handleDeleteProject(projectId);
+    } else if (action === 'archive') {
+      handleArchiveProject(projectId);
+    }
+  };
 
   const handleSubmit = async () => {
     if (!prompt.trim()) return;
@@ -1806,21 +1933,102 @@ Beispiel: Erstelle eine moderne Todo-App mit dunklem Design. Die App soll Todos 
             </div>
           </div>
 
-          {recentProjects.length > 0 && (
+          {(showArchived ? archivedProjects : recentProjects).length > 0 && (
             <div className="w-full space-y-4">
-              <h3 className="text-sm font-semibold uppercase tracking-widest text-zinc-500">Aktuelle Projekte</h3>
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-semibold uppercase tracking-widest text-zinc-500">
+                  {showArchived ? `Archivierte Projekte (${archivedProjects.length})` : `Aktuelle Projekte (${recentProjects.length})`}
+                </h3>
+                <button
+                  onClick={() => setShowArchived(!showArchived)}
+                  className="flex items-center gap-2 px-3 py-1.5 text-sm text-zinc-400 hover:text-white hover:bg-zinc-800/50 rounded-md transition-colors"
+                >
+                  {showArchived ? (
+                    <>
+                      <Home size={14} />
+                      <span>Aktive Projekte</span>
+                    </>
+                  ) : (
+                    <>
+                      <Archive size={14} />
+                      <span>Archiv ({archivedProjects.length})</span>
+                    </>
+                  )}
+                </button>
+              </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                {recentProjects.map((project) => (
-                  <Tooltip key={project.id} text={`Öffne "${project.name}" im Workspace`} position="top">
-                    <button onClick={() => navigate(`/workspace/${project.id}`)} className="flex items-center gap-3 p-4 bg-zinc-900 border border-zinc-800 rounded-lg text-left hover:border-zinc-700 hover:bg-zinc-800/50 transition-all group w-full" data-testid={`recent-project-${project.id}`}>
-                      <div className="w-10 h-10 bg-zinc-800 rounded-md flex items-center justify-center text-zinc-400 group-hover:text-white transition-colors"><FileCode size={20} /></div>
+                {(showArchived ? archivedProjects : recentProjects).map((project) => (
+                  <div key={project.id} className="group relative flex items-center gap-3 p-4 bg-zinc-900 border border-zinc-800 rounded-lg hover:border-zinc-700 hover:bg-zinc-800/50 transition-all" data-testid={`project-${project.id}`}>
+                    <button 
+                      onClick={() => navigate(`/workspace/${project.id}`)} 
+                      className="flex items-center gap-3 flex-1 min-w-0 text-left"
+                    >
+                      <div className="w-10 h-10 bg-zinc-800 rounded-md flex items-center justify-center text-zinc-400 group-hover:text-white transition-colors shrink-0">
+                        <FileCode size={20} />
+                      </div>
                       <div className="flex-1 min-w-0">
                         <p className="font-medium text-zinc-200 truncate">{project.name}</p>
                         <p className="text-xs text-zinc-500">{project.project_type}</p>
                       </div>
-                      <ChevronRight size={16} className="text-zinc-600" />
                     </button>
-                  </Tooltip>
+                    
+                    {/* Action Buttons */}
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                      <Tooltip text="Projekt herunterladen" position="top">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDownloadProject(project.id, project.name);
+                          }}
+                          className="p-1.5 text-zinc-500 hover:text-blue-400 hover:bg-zinc-800 rounded transition-colors"
+                          data-testid={`download-project-${project.id}`}
+                        >
+                          <Download size={16} />
+                        </button>
+                      </Tooltip>
+                      
+                      {showArchived ? (
+                        <Tooltip text="Projekt entarchivieren" position="top">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleUnarchiveProject(project.id);
+                            }}
+                            className="p-1.5 text-zinc-500 hover:text-emerald-400 hover:bg-zinc-800 rounded transition-colors"
+                            data-testid={`unarchive-project-${project.id}`}
+                          >
+                            <ArchiveRestore size={16} />
+                          </button>
+                        </Tooltip>
+                      ) : (
+                        <Tooltip text="Projekt archivieren" position="top">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openConfirmModal(project.id, 'archive');
+                            }}
+                            className="p-1.5 text-zinc-500 hover:text-amber-400 hover:bg-zinc-800 rounded transition-colors"
+                            data-testid={`archive-project-${project.id}`}
+                          >
+                            <Archive size={16} />
+                          </button>
+                        </Tooltip>
+                      )}
+                      
+                      <Tooltip text="Projekt löschen" position="top">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openConfirmModal(project.id, 'delete');
+                          }}
+                          className="p-1.5 text-zinc-500 hover:text-red-400 hover:bg-zinc-800 rounded transition-colors"
+                          data-testid={`delete-project-${project.id}`}
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </Tooltip>
+                    </div>
+                  </div>
                 ))}
               </div>
             </div>
@@ -1836,6 +2044,21 @@ Beispiel: Erstelle eine moderne Todo-App mit dunklem Design. Die App soll Todos 
           onClose={() => setShowSettings(false)}
         />
       )}
+      
+      {/* Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={confirmModal.isOpen}
+        onClose={closeConfirmModal}
+        onConfirm={handleConfirmAction}
+        title={confirmModal.action === 'delete' ? 'Projekt löschen' : 'Projekt archivieren'}
+        message={
+          confirmModal.action === 'delete'
+            ? 'Möchten Sie dieses Projekt wirklich löschen? Alle Dateien und Daten werden unwiderruflich gelöscht.'
+            : 'Möchten Sie dieses Projekt archivieren? Es wird aus der aktiven Projektliste entfernt, bleibt aber verfügbar.'
+        }
+        confirmText={confirmModal.action === 'delete' ? 'Löschen' : 'Archivieren'}
+        confirmColor={confirmModal.action === 'delete' ? 'bg-red-600 hover:bg-red-500' : 'bg-amber-600 hover:bg-amber-500'}
+      />
     </div>
   );
 };

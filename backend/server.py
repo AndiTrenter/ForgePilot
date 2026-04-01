@@ -3320,32 +3320,19 @@ async def get_project(project_id: str):
 
 @api_router.delete("/projects/{project_id}")
 async def delete_project(project_id: str):
-    await db.projects.delete_one({"id": project_id})
-    workspace_path = WORKSPACES_DIR / project_id
-    if workspace_path.exists():
-        shutil.rmtree(workspace_path)
-    await db.messages.delete_many({"project_id": project_id})
-    await db.agent_status.delete_many({"project_id": project_id})
-    await db.roadmap.delete_many({"project_id": project_id})
-    await db.logs.delete_many({"project_id": project_id})
-    return {"message": "Deleted"}
-
-
-
-@api_router.delete("/projects/{project_id}")
-async def delete_project(project_id: str):
     """Delete a project completely"""
     try:
+        # Delete from database first
+        await db.projects.delete_one({"id": project_id})
+        await db.messages.delete_many({"project_id": project_id})
+        await db.agent_status.delete_many({"project_id": project_id})
+        await db.roadmap.delete_many({"project_id": project_id})
+        await db.logs.delete_many({"project_id": project_id})
+        
         # Delete workspace folder
-        workspace_path = Path(f"/app/workspaces/{project_id}")
+        workspace_path = WORKSPACES_DIR / project_id
         if workspace_path.exists():
             shutil.rmtree(workspace_path)
-        
-        # Delete from database
-        await projects_collection.delete_one({"_id": project_id})
-        await logs_collection.delete_many({"project_id": project_id})
-        await agents_collection.delete_many({"project_id": project_id})
-        await roadmap_collection.delete_many({"project_id": project_id})
         
         return {"success": True, "message": f"Projekt {project_id} gelöscht"}
     except Exception as e:
@@ -3387,15 +3374,15 @@ async def download_project(project_id: str):
 async def archive_project(project_id: str):
     """Archive a completed project"""
     try:
-        result = await projects_collection.update_one(
-            {"_id": project_id},
+        result = await db.projects.update_one(
+            {"id": project_id},
             {"$set": {
                 "archived": True,
                 "archived_at": datetime.now(timezone.utc).isoformat()
             }}
         )
         
-        if result.modified_count == 0:
+        if result.matched_count == 0:
             raise HTTPException(status_code=404, detail="Projekt nicht gefunden")
         
         return {"success": True, "message": "Projekt archiviert"}
@@ -3409,8 +3396,10 @@ async def archive_project(project_id: str):
 async def get_archived_projects():
     """Get all archived projects"""
     try:
-        cursor = projects_collection.find({"archived": True}).sort("archived_at", -1)
-        projects = await cursor.to_list(100)
+        projects = await db.projects.find(
+            {"archived": True}, 
+            {"_id": 0}
+        ).sort("archived_at", -1).to_list(100)
         return projects
     except Exception as e:
         logger.error(f"Get archived projects error: {e}")
@@ -3420,18 +3409,15 @@ async def get_archived_projects():
 async def unarchive_project(project_id: str):
     """Restore an archived project"""
     try:
-        result = await projects_collection.update_one(
-            {"_id": project_id},
-            {"$set": {
-                "archived": False,
-                "unarchived_at": datetime.now(timezone.utc).isoformat()
-            }}
+        result = await db.projects.update_one(
+            {"id": project_id},
+            {"$unset": {"archived": "", "archived_at": ""}}
         )
         
-        if result.modified_count == 0:
+        if result.matched_count == 0:
             raise HTTPException(status_code=404, detail="Projekt nicht gefunden")
         
-        return {"success": True, "message": "Projekt reaktiviert"}
+        return {"success": True, "message": "Projekt wiederhergestellt"}
     except HTTPException:
         raise
     except Exception as e:
