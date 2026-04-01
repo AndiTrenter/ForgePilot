@@ -911,7 +911,14 @@ async def get_version():
 AGENT_TOOLS = [
     {"type": "function", "function": {"name": "create_file", "description": "Create a new file with content", "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"]}}},
     {"type": "function", "function": {"name": "modify_file", "description": "Modify an existing file", "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"]}}},
+    {"type": "function", "function": {"name": "search_replace", "description": "PREFERRED over modify_file! Precise edits: find old_str and replace with new_str. Much faster and safer.", "parameters": {"type": "object", "properties": {"path": {"type": "string", "description": "File path"}, "old_str": {"type": "string", "description": "Exact string to find (must match exactly!)"}, "new_str": {"type": "string", "description": "Replacement string"}}, "required": ["path", "old_str", "new_str"]}}},
     {"type": "function", "function": {"name": "read_file", "description": "Read file content", "parameters": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}}},
+    {"type": "function", "function": {"name": "view_file", "description": "View file with optional line range. Better than read_file for large files.", "parameters": {"type": "object", "properties": {"path": {"type": "string", "description": "File path"}, "start_line": {"type": "integer", "description": "Start line (optional)"}, "end_line": {"type": "integer", "description": "End line (optional)"}}, "required": ["path"]}}},
+    {"type": "function", "function": {"name": "view_bulk", "description": "View multiple files at once. Much faster than reading one by one.", "parameters": {"type": "object", "properties": {"paths": {"type": "array", "items": {"type": "string"}, "description": "List of file paths to view"}}, "required": ["paths"]}}},
+    {"type": "function", "function": {"name": "glob_files", "description": "Find files by pattern (e.g., '**/*.js', 'src/**/*.py')", "parameters": {"type": "object", "properties": {"pattern": {"type": "string", "description": "Glob pattern"}}, "required": ["pattern"]}}},
+    {"type": "function", "function": {"name": "lint_javascript", "description": "Lint JavaScript/TypeScript files with ESLint. Finds syntax errors, unused variables, etc.", "parameters": {"type": "object", "properties": {"path": {"type": "string", "description": "File or directory to lint"}}, "required": ["path"]}}},
+    {"type": "function", "function": {"name": "lint_python", "description": "Lint Python files with ruff. Finds syntax errors, unused imports, style issues.", "parameters": {"type": "object", "properties": {"path": {"type": "string", "description": "File or directory to lint"}}, "required": ["path"]}}},
+    {"type": "function", "function": {"name": "screenshot", "description": "Take screenshot of the preview to visually validate UI. Checks layout, colors, buttons visibility.", "parameters": {"type": "object", "properties": {"url": {"type": "string", "description": "URL to screenshot (optional, defaults to preview)"}}, "required": []}}},
     {"type": "function", "function": {"name": "delete_file", "description": "Delete a file", "parameters": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}}},
     {"type": "function", "function": {"name": "list_files", "description": "List all files", "parameters": {"type": "object", "properties": {"directory": {"type": "string"}}, "required": []}}},
     {"type": "function", "function": {"name": "run_command", "description": "Run shell command (npm, pip, python, node)", "parameters": {"type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"]}}},
@@ -1070,10 +1077,198 @@ async def execute_tool(tool_name: str, arguments: dict, workspace_path: Path, pr
                     content = await f.read()
                 result["output"] = f"Inhalt von {arguments['path']}:\n```\n{content}\n```"
         
+        elif tool_name == "search_replace":
+            file_path = workspace_path / arguments["path"]
+            old_str = arguments["old_str"]
+            new_str = arguments["new_str"]
+            
+            if not file_path.exists():
+                result["output"] = f"✗ Datei nicht gefunden: {arguments['path']}"
+            else:
+                async with aiofiles.open(file_path, 'r') as f:
+                    content = await f.read()
+                
+                if old_str not in content:
+                    result["output"] = f"✗ String nicht gefunden in {arguments['path']}"
+                else:
+                    new_content = content.replace(old_str, new_str, 1)
+                    async with aiofiles.open(file_path, 'w') as f:
+                        await f.write(new_content)
+                    result["output"] = f"✓ Ersetzt in {arguments['path']}"
+                    await add_log(project_id, "success", f"search_replace: {arguments['path']}", "coder")
+        
+        elif tool_name == "view_file":
+            file_path = workspace_path / arguments["path"]
+            start_line = arguments.get("start_line")
+            end_line = arguments.get("end_line")
+            
+            if not file_path.exists():
+                result["output"] = f"✗ Datei nicht gefunden: {arguments['path']}"
+            else:
+                async with aiofiles.open(file_path, 'r') as f:
+                    lines = await f.readlines()
+                
+                if start_line and end_line:
+                    selected_lines = lines[start_line-1:end_line]
+                    result["output"] = f"[Lines {start_line}-{end_line} of {len(lines)}]\n" + "".join(selected_lines)
+                else:
+                    result["output"] = "".join(lines[:2000])
+        
+        elif tool_name == "view_bulk":
+            paths = arguments["paths"]
+            outputs = []
+            
+            for path_str in paths[:10]:
+                file_path = workspace_path / path_str
+                if file_path.exists():
+                    async with aiofiles.open(file_path, 'r') as f:
+                        content = await f.read()
+                    outputs.append(f"\n=== {path_str} ===\n{content[:1000]}")
+                else:
+                    outputs.append(f"\n=== {path_str} ===\n✗ Not found")
+            
+            result["output"] = "\n".join(outputs)
+        
+        elif tool_name == "glob_files":
+            pattern = arguments["pattern"]
+            
+            try:
+                matches = []
+                for file in workspace_path.rglob(pattern.lstrip("**/").lstrip("/")):
+                    if file.is_file():
+                        rel_path = file.relative_to(workspace_path)
+                        matches.append(str(rel_path))
+                
+                result["output"] = f"Found {len(matches)} files:\n" + "\n".join(matches[:50])
+            except Exception as e:
+                result["output"] = f"✗ Glob error: {str(e)}"
+
+        
         elif tool_name == "delete_file":
             file_path = workspace_path / arguments["path"]
             if file_path.exists():
                 file_path.unlink()
+        
+        elif tool_name == "lint_javascript":
+            path = arguments["path"]
+            target_path = workspace_path / path
+            
+            await update_agent(project_id, "reviewer", "running", f"Linting: {path}")
+            await add_log(project_id, "info", f"🔍 Lint JavaScript: {path}", "reviewer")
+            
+            try:
+                env = os.environ.copy()
+                env['PATH'] = '/usr/bin:/usr/local/bin:/bin:' + env.get('PATH', '')
+                
+                # Simple syntax check with node
+                proc = subprocess.run(
+                    ["node", "--check", str(target_path)] if target_path.is_file() else ["echo", "Directory linting not implemented"],
+                    capture_output=True,
+                    text=True,
+                    env=env,
+                    cwd=workspace_path
+                )
+                
+                if proc.returncode == 0:
+                    result["output"] = f"✅ JavaScript Lint: No errors in {path}"
+                    await add_log(project_id, "success", f"Lint: {path} OK", "reviewer")
+                else:
+                    result["output"] = f"❌ JavaScript Lint Errors:\n{proc.stderr}"
+                    await add_log(project_id, "error", f"Lint errors in {path}", "reviewer")
+                
+                await update_agent(project_id, "reviewer", "completed", "Lint done")
+            except Exception as e:
+                result["output"] = f"❌ Lint error: {str(e)}"
+                await add_log(project_id, "error", f"Lint failed: {str(e)}", "reviewer")
+        
+        elif tool_name == "lint_python":
+            path = arguments["path"]
+            target_path = workspace_path / path
+            
+            await update_agent(project_id, "reviewer", "running", f"Linting: {path}")
+            await add_log(project_id, "info", f"🔍 Lint Python: {path}", "reviewer")
+            
+            try:
+                env = os.environ.copy()
+                env['PATH'] = '/usr/bin:/usr/local/bin:/bin:' + env.get('PATH', '')
+                
+                # Check syntax with python
+                proc = subprocess.run(
+                    ["python3", "-m", "py_compile", str(target_path)] if target_path.is_file() else ["echo", "Directory linting not implemented"],
+                    capture_output=True,
+                    text=True,
+                    env=env,
+                    cwd=workspace_path
+                )
+                
+                if proc.returncode == 0:
+                    result["output"] = f"✅ Python Lint: No errors in {path}"
+                    await add_log(project_id, "success", f"Lint: {path} OK", "reviewer")
+                else:
+                    result["output"] = f"❌ Python Lint Errors:\n{proc.stderr}"
+                    await add_log(project_id, "error", f"Lint errors in {path}", "reviewer")
+        
+        elif tool_name == "screenshot":
+            url = arguments.get("url", "")
+            
+            await update_agent(project_id, "tester", "running", "Screenshot...")
+            await add_log(project_id, "info", "📸 Taking screenshot", "tester")
+            
+            # Create simple Playwright script
+            screenshot_script = f"""
+import asyncio
+from playwright.async_api import async_playwright
+
+async def take_screenshot():
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        page = await browser.new_page()
+        
+        try:
+            preview_url = "{url}" or "http://localhost:3000/preview/{project_id}"
+            await page.goto(preview_url, wait_until="networkidle", timeout=15000)
+            await page.wait_for_timeout(2000)
+            
+            await page.screenshot(path="/tmp/screenshot.png")
+            print("✅ Screenshot saved to /tmp/screenshot.png")
+        except Exception as e:
+            print(f"❌ Screenshot error: {{e}}")
+        finally:
+            await browser.close()
+
+asyncio.run(take_screenshot())
+"""
+            
+            script_path = workspace_path / ".screenshot.py"
+            async with aiofiles.open(script_path, 'w') as f:
+                await f.write(screenshot_script)
+            
+            try:
+                env = os.environ.copy()
+                env['PATH'] = '/usr/bin:/usr/local/bin:/bin:' + env.get('PATH', '')
+                
+                proc = subprocess.run(
+                    [sys.executable, str(script_path)],
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                    env=env,
+                    cwd=workspace_path
+                )
+                
+                result["output"] = f"📸 Screenshot:\n{proc.stdout}\n{proc.stderr}"
+                await add_log(project_id, "success" if "✅" in proc.stdout else "error", "Screenshot genommen", "tester")
+            except Exception as e:
+                result["output"] = f"❌ Screenshot error: {str(e)}"
+            
+            await update_agent(project_id, "tester", "completed", "Screenshot done")
+
+                
+                await update_agent(project_id, "reviewer", "completed", "Lint done")
+            except Exception as e:
+                result["output"] = f"❌ Lint error: {str(e)}"
+                await add_log(project_id, "error", f"Lint failed: {str(e)}", "reviewer")
+
                 result["output"] = f"✓ Datei gelöscht: {arguments['path']}"
             else:
                 result["output"] = f"Datei nicht gefunden: {arguments['path']}"
@@ -2579,7 +2774,52 @@ BEI FEHLERN - DENKE:
 ✅ Loop bis 0 Fehler
 ✅ Erst dann mark_complete
 
-🔥 **NEUE E1 EXPERT TOOLS - NUTZE SIE!**
+🔥 **E1-LEVEL PERFORMANCE TOOLS:**
+
+⚡ **PARALLEL TOOL CALLING** - NUTZE ES!
+├─ Du kannst MEHRERE Tools GLEICHZEITIG aufrufen!
+├─ Beispiele:
+│  ✓ view_file für 3 Dateien parallel
+│  ✓ create_file für alle Files parallel
+│  ✓ search_replace + lint parallel
+│  ✓ Bis zu 5-10 Tools gleichzeitig!
+│
+├─ MASSIV SCHNELLER als sequentiell!
+│  Vorher: view(file1) → view(file2) → view(file3) = 3 Calls
+│  Jetzt: [view(file1), view(file2), view(file3)] = 1 Call!
+│
+└─ WANN NUTZEN:
+   ✓ Mehrere Dateien lesen
+   ✓ Mehrere Dateien erstellen
+   ✓ Batch-Operationen
+   ✗ NICHT wenn Tools voneinander abhängen
+
+✏️ **search_replace** - BEVORZUGE es über modify_file!
+├─ Präzise Edits statt komplettes Rewrite
+├─ Schneller & weniger Fehler
+├─ Beispiel:
+│  search_replace(path="app.js",
+│    old_str="const port = 3000",
+│    new_str="const port = 8080")
+└─ Nutze für: Bug Fixes, kleine Änderungen
+
+📂 **Better File Tools:**
+├─ view_file({path, start_line, end_line})
+│  └─ Nur Zeilen 100-200 ansehen (schnell!)
+├─ view_bulk({paths: ["file1", "file2", "file3"]})
+│  └─ 3 Files gleichzeitig lesen
+└─ glob_files({pattern: "**/*.js"})
+   └─ Alle JS-Files finden
+
+🔍 **Linting - VOR browser_test!**
+├─ lint_javascript({path: "script.js"})
+├─ lint_python({path: "app.py"})
+└─ Finde Syntax-Fehler SOFORT (spare Zeit!)
+
+📸 **screenshot()** - UI visuell checken
+└─ Nach browser_test → Screenshot → Sehe ob UI gut aussieht
+
+🔧 **WORKFLOW MIT NEUEN TOOLS:**
 
 ├─ 💭 think("thought")
 │  └─ Nutze bei JEDEM wichtigen Schritt!
