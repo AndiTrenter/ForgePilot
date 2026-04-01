@@ -749,6 +749,73 @@ async def install_update(target_version: str = None):
             "target_version": version
         }
 
+@api_router.get("/update/execute-live")
+async def execute_update_live():
+    """Execute update script with live output streaming (Server-Sent Events)"""
+    from fastapi.responses import StreamingResponse
+    import asyncio
+    
+    async def generate_output():
+        """Stream update script output line by line"""
+        update_script = Path("/mnt/user/appdata/forgepilot/update.sh")
+        
+        # Check if script exists
+        if not update_script.exists():
+            yield f"data: {{\"type\": \"error\", \"message\": \"Update-Script nicht gefunden: {update_script}\"}}\n\n"
+            return
+        
+        yield f"data: {{\"type\": \"info\", \"message\": \"ForgePilot Update Script\"}}\n\n"
+        yield f"data: {{\"type\": \"info\", \"message\": \"Starte Update...\"}}\n\n"
+        
+        try:
+            # Execute the update script
+            process = await asyncio.create_subprocess_exec(
+                "bash",
+                str(update_script),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+                cwd="/mnt/user/appdata/forgepilot"
+            )
+            
+            # Stream output line by line
+            while True:
+                line = await process.stdout.readline()
+                if not line:
+                    break
+                
+                output = line.decode('utf-8').rstrip()
+                if output:
+                    # Send each line as SSE event
+                    import json
+                    yield f"data: {json.dumps({'type': 'output', 'message': output})}\n\n"
+                    await asyncio.sleep(0.01)  # Small delay for smooth streaming
+            
+            # Wait for process to complete
+            await process.wait()
+            
+            if process.returncode == 0:
+                yield f"data: {{\"type\": \"success\", \"message\": \"✅ Update erfolgreich abgeschlossen!\"}}\n\n"
+            else:
+                yield f"data: {{\"type\": \"error\", \"message\": \"❌ Update mit Fehler beendet (Exit Code: {process.returncode})\"}}\n\n"
+            
+            yield f"data: {{\"type\": \"done\"}}\n\n"
+            
+        except Exception as e:
+            logger.error(f"Update execution error: {e}")
+            import json
+            yield f"data: {json.dumps({'type': 'error', 'message': f'Fehler: {str(e)}'})}\n\n"
+            yield f"data: {{\"type\": \"done\"}}\n\n"
+    
+    return StreamingResponse(
+        generate_output(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
+
 @api_router.post("/update/execute")
 async def execute_update_script():
     """Execute update script directly (for UI button) with root privileges"""

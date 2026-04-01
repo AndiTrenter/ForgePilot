@@ -10,7 +10,7 @@ import {
   Check, Circle, ArrowRight, Lock, Globe, Upload, Search,
   ExternalLink, Mic, MicOff, Square, PanelRightClose, PanelRightOpen,
   Maximize2, Minimize2, Rocket, Paperclip, Image as ImageIcon,
-  Trash2, Download, Archive, ArchiveRestore
+  Trash2, Download, Archive, ArchiveRestore, MonitorPlay
 } from "lucide-react";
 import DeployModal from "./DeployModal";
 import Prism from 'prismjs';
@@ -699,6 +699,157 @@ const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message, confirm
   );
 };
 
+// ============== LIVE TERMINAL MODAL ==============
+
+const LiveTerminalModal = ({ isOpen, onClose, title = "Update Console" }) => {
+  const [logs, setLogs] = useState([]);
+  const [isRunning, setIsRunning] = useState(false);
+  const [isDone, setIsDone] = useState(false);
+  const terminalRef = useRef(null);
+  const eventSourceRef = useRef(null);
+
+  useEffect(() => {
+    if (isOpen && !isRunning && !isDone) {
+      startUpdate();
+    }
+    
+    return () => {
+      // Cleanup: close event source when modal closes
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+      }
+    };
+  }, [isOpen]);
+
+  useEffect(() => {
+    // Auto-scroll to bottom when new logs appear
+    if (terminalRef.current) {
+      terminalRef.current.scrollTop = terminalRef.current.scrollHeight;
+    }
+  }, [logs]);
+
+  const startUpdate = () => {
+    setIsRunning(true);
+    setLogs([]);
+    
+    // Create EventSource for Server-Sent Events
+    const eventSource = new EventSource(`${getApiBase()}/update/execute-live`);
+    eventSourceRef.current = eventSource;
+
+    eventSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        
+        if (data.type === 'done') {
+          setIsRunning(false);
+          setIsDone(true);
+          eventSource.close();
+        } else {
+          setLogs(prev => [...prev, data]);
+        }
+      } catch (e) {
+        console.error('Failed to parse SSE data:', e);
+      }
+    };
+
+    eventSource.onerror = (error) => {
+      console.error('EventSource error:', error);
+      setLogs(prev => [...prev, { type: 'error', message: 'Verbindung zum Server unterbrochen' }]);
+      setIsRunning(false);
+      setIsDone(true);
+      eventSource.close();
+    };
+  };
+
+  const getLogColor = (type) => {
+    switch (type) {
+      case 'error': return 'text-red-400';
+      case 'success': return 'text-emerald-400';
+      case 'info': return 'text-blue-400';
+      default: return 'text-zinc-300';
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div 
+      className="fixed inset-0 bg-black/90 flex items-center justify-center z-[400] p-4"
+      onClick={(e) => {
+        if (isDone) onClose();
+      }}
+    >
+      <div 
+        className="bg-zinc-950 border border-zinc-700 rounded-lg w-full max-w-4xl h-[80vh] shadow-2xl flex flex-col"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="p-4 border-b border-zinc-800 flex items-center justify-between shrink-0 bg-zinc-900">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-zinc-800 rounded">
+              <Terminal size={20} className="text-emerald-400" />
+            </div>
+            <div>
+              <h3 className="text-lg font-medium text-white">{title}</h3>
+              <p className="text-xs text-zinc-500">Live Output</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {isRunning && (
+              <div className="flex items-center gap-2 px-3 py-1 bg-emerald-500/10 border border-emerald-500/30 rounded text-emerald-400 text-sm">
+                <Loader2 size={14} className="animate-spin" />
+                <span>Läuft...</span>
+              </div>
+            )}
+            {isDone && (
+              <button
+                onClick={onClose}
+                className="text-zinc-400 hover:text-white transition-colors"
+              >
+                <X size={20} />
+              </button>
+            )}
+          </div>
+        </div>
+        
+        {/* Terminal Content */}
+        <div 
+          ref={terminalRef}
+          className="flex-1 overflow-y-auto p-4 font-mono text-sm bg-black"
+        >
+          {logs.length === 0 && isRunning && (
+            <div className="flex items-center gap-2 text-zinc-500">
+              <Loader2 size={16} className="animate-spin" />
+              <span>Initialisiere Update...</span>
+            </div>
+          )}
+          {logs.map((log, index) => (
+            <div key={index} className={`mb-1 ${getLogColor(log.type)}`}>
+              {log.message}
+            </div>
+          ))}
+        </div>
+        
+        {/* Footer */}
+        <div className="p-4 border-t border-zinc-800 flex justify-between items-center shrink-0 bg-zinc-900">
+          <div className="text-xs text-zinc-500">
+            {isRunning && "Update wird ausgeführt..."}
+            {isDone && "Update abgeschlossen - Sie können dieses Fenster schließen"}
+          </div>
+          {isDone && (
+            <button
+              onClick={onClose}
+              className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded transition-colors"
+            >
+              Schließen
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ============== ROADMAP VIEW ==============
 
 const RoadmapView = ({ items }) => {
@@ -742,87 +893,99 @@ const RoadmapView = ({ items }) => {
 
 const UpdateBanner = ({ updateStatus, onCheckUpdate, onInstallUpdate, onDismiss }) => {
   const [showDetails, setShowDetails] = useState(false);
+  const [showTerminal, setShowTerminal] = useState(false);
   
   if (!updateStatus?.update_available) return null;
   
   return (
-    <div className="fixed top-0 left-0 right-0 z-50 bg-gradient-to-r from-blue-600 to-purple-600 text-white px-4 py-2 shadow-lg animate-fade-in">
-      <div className="max-w-7xl mx-auto flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="p-1.5 bg-white/20 rounded-full">
-            <RefreshCw size={16} />
+    <>
+      <div className="fixed top-0 left-0 right-0 z-50 bg-gradient-to-r from-blue-600 to-purple-600 text-white px-4 py-2 shadow-lg animate-fade-in">
+        <div className="max-w-7xl mx-auto flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="p-1.5 bg-white/20 rounded-full">
+              <RefreshCw size={16} />
+            </div>
+            <div>
+              <span className="font-medium">Update verfügbar: Version {updateStatus.latest_version}</span>
+              <span className="text-white/70 text-sm ml-2">(aktuell: {updateStatus.installed_version})</span>
+            </div>
           </div>
-          <div>
-            <span className="font-medium">Update verfügbar: Version {updateStatus.latest_version}</span>
-            <span className="text-white/70 text-sm ml-2">(aktuell: {updateStatus.installed_version})</span>
+          <div className="flex items-center gap-2">
+            <button 
+              onClick={() => setShowDetails(true)} 
+              className="px-3 py-1 text-sm bg-white/20 hover:bg-white/30 rounded-md transition-colors"
+            >
+              Details
+            </button>
+            <button 
+              onClick={() => setShowTerminal(true)} 
+              className="flex items-center gap-2 px-3 py-1 text-sm bg-white text-blue-600 hover:bg-blue-50 rounded-md font-medium transition-colors"
+            >
+              <MonitorPlay size={14} />
+              Jetzt updaten
+            </button>
+            <button 
+              onClick={onDismiss} 
+              className="p-1 hover:bg-white/20 rounded-md transition-colors"
+            >
+              <X size={16} />
+            </button>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <button 
-            onClick={() => setShowDetails(true)} 
-            className="px-3 py-1 text-sm bg-white/20 hover:bg-white/30 rounded-md transition-colors"
-          >
-            Details
-          </button>
-          <button 
-            onClick={onInstallUpdate} 
-            className="px-3 py-1 text-sm bg-white text-blue-600 hover:bg-blue-50 rounded-md font-medium transition-colors"
-          >
-            Jetzt updaten
-          </button>
-          <button 
-            onClick={onDismiss} 
-            className="p-1 hover:bg-white/20 rounded-md transition-colors"
-          >
-            <X size={16} />
-          </button>
-        </div>
+        
+        {/* Details Modal */}
+        {showDetails && (
+          <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4" onClick={() => setShowDetails(false)}>
+            <div className="bg-zinc-900 border border-zinc-800 rounded-lg w-full max-w-md shadow-2xl" onClick={e => e.stopPropagation()}>
+              <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
+                <h3 className="text-lg font-medium text-white">Update Details</h3>
+                <button onClick={() => setShowDetails(false)} className="text-zinc-400 hover:text-white"><X size={20} /></button>
+              </div>
+              <div className="p-4 space-y-4">
+                <div className="flex justify-between text-sm">
+                  <span className="text-zinc-400">Installiert:</span>
+                  <span className="text-white font-mono">{updateStatus.installed_version}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-zinc-400">Verfügbar:</span>
+                  <span className="text-emerald-400 font-mono">{updateStatus.latest_version}</span>
+                </div>
+                {updateStatus.last_checked_at && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-zinc-400">Geprüft:</span>
+                    <span className="text-zinc-300">{new Date(updateStatus.last_checked_at).toLocaleString('de-DE')}</span>
+                  </div>
+                )}
+                {updateStatus.release_notes && (
+                  <div className="mt-4">
+                    <h4 className="text-sm font-medium text-zinc-300 mb-2">Release Notes:</h4>
+                    <div className="text-xs text-zinc-400 bg-zinc-800 p-3 rounded-md max-h-48 overflow-auto whitespace-pre-wrap">
+                      {updateStatus.release_notes}
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div className="p-4 border-t border-zinc-800 flex justify-end gap-2">
+                <button onClick={() => setShowDetails(false)} className="px-4 py-2 text-zinc-400 hover:text-white">
+                  Später
+                </button>
+                <button onClick={() => { setShowDetails(false); setShowTerminal(true); }} className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-md font-medium">
+                  <MonitorPlay size={14} />
+                  Update installieren
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
       
-      {/* Details Modal */}
-      {showDetails && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4" onClick={() => setShowDetails(false)}>
-          <div className="bg-zinc-900 border border-zinc-800 rounded-lg w-full max-w-md shadow-2xl" onClick={e => e.stopPropagation()}>
-            <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
-              <h3 className="text-lg font-medium text-white">Update Details</h3>
-              <button onClick={() => setShowDetails(false)} className="text-zinc-400 hover:text-white"><X size={20} /></button>
-            </div>
-            <div className="p-4 space-y-4">
-              <div className="flex justify-between text-sm">
-                <span className="text-zinc-400">Installiert:</span>
-                <span className="text-white font-mono">{updateStatus.installed_version}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-zinc-400">Verfügbar:</span>
-                <span className="text-emerald-400 font-mono">{updateStatus.latest_version}</span>
-              </div>
-              {updateStatus.last_checked_at && (
-                <div className="flex justify-between text-sm">
-                  <span className="text-zinc-400">Geprüft:</span>
-                  <span className="text-zinc-300">{new Date(updateStatus.last_checked_at).toLocaleString('de-DE')}</span>
-                </div>
-              )}
-              {updateStatus.release_notes && (
-                <div className="mt-4">
-                  <h4 className="text-sm font-medium text-zinc-300 mb-2">Release Notes:</h4>
-                  <div className="text-xs text-zinc-400 bg-zinc-800 p-3 rounded-md max-h-48 overflow-auto whitespace-pre-wrap">
-                    {updateStatus.release_notes}
-                  </div>
-                </div>
-              )}
-            </div>
-            <div className="p-4 border-t border-zinc-800 flex justify-end gap-2">
-              <button onClick={() => setShowDetails(false)} className="px-4 py-2 text-zinc-400 hover:text-white">
-                Später
-              </button>
-              <button onClick={() => { setShowDetails(false); onInstallUpdate(); }} className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-md font-medium">
-                Update installieren
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+      {/* Live Terminal Modal */}
+      <LiveTerminalModal
+        isOpen={showTerminal}
+        onClose={() => setShowTerminal(false)}
+        title="ForgePilot Update"
+      />
+    </>
   );
 };
 
