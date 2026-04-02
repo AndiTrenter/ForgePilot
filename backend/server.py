@@ -2866,16 +2866,16 @@ BEI FEHLERN - DENKE:
 └─ Nutze für: Bug Fixes, kleine Änderungen
 
 📂 **Better File Tools:**
-├─ view_file({path, start_line, end_line})
+├─ view_file(path="file.js", start_line=100, end_line=200)
 │  └─ Nur Zeilen 100-200 ansehen (schnell!)
-├─ view_bulk({paths: ["file1", "file2", "file3"]})
+├─ view_bulk(paths=["file1", "file2", "file3"])
 │  └─ 3 Files gleichzeitig lesen
-└─ glob_files({pattern: "**/*.js"})
+└─ glob_files(pattern="**/*.js")
    └─ Alle JS-Files finden
 
 🔍 **Linting - VOR browser_test!**
-├─ lint_javascript({path: "script.js"})
-├─ lint_python({path: "app.py"})
+├─ lint_javascript(path="script.js")
+├─ lint_python(path="app.py")
 └─ Finde Syntax-Fehler SOFORT (spare Zeit!)
 
 📸 **screenshot()** - UI visuell checken
@@ -2888,22 +2888,22 @@ BEI FEHLERN - DENKE:
 │     "Ich denke, dass..." → User sieht deine Überlegungen
 │     Macht dich transparent wie E1!
 │
-├─ 🔧 troubleshoot({problem, attempted_solutions})
+├─ 🔧 troubleshoot(problem="...", attempted_solutions=[...])
 │  └─ Nutze nach 2-3 fehlgeschlagenen Versuchen!
 │     Stuck in loop? → troubleshoot → bekomme neue Ideen
 │     Expert gibt alternative Lösungen
 │
-├─ 📚 get_integration_playbook({integration, use_case})
+├─ 📚 get_integration_playbook(integration="stripe", use_case="payments")
 │  └─ Für JEDE 3rd party API!
 │     OpenAI, Stripe, MongoDB, etc.
 │     → Bekommst latest SDKs, code examples, best practices
 │
-├─ 🎨 get_design_guidelines({app_type, style})
+├─ 🎨 get_design_guidelines(app_type="dashboard", style="modern")
 │  └─ Für professionelles UI/UX!
 │     Dashboard, Landing Page, E-Commerce
 │     → Color schemes, layouts, components
 │
-├─ 🧪 advanced_test({test_type, scenarios})
+├─ 🧪 advanced_test(test_type="e2e", scenarios=[...])
 │  └─ Für gründliches Testing
 │     UI + Backend Tests
 │     Nutze vor mark_complete
@@ -2939,7 +2939,7 @@ get_design_guidelines("dashboard", "modern")
 → dann umsetzen
 
 **Bei Problemen (2-3x fehlgeschlagen):**
-troubleshoot({problem: "...", attempted_solutions: [...]})
+troubleshoot(problem="...", attempted_solutions=[...])
 → neue Strategie
 
 **Nach Feature:**
