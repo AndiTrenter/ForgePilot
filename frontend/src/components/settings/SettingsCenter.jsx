@@ -120,6 +120,10 @@ const SettingsCenter = ({ isOpen, onClose }) => {
 };
 
 const ProviderCard = ({ provider, testStatus, onTest }) => {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [apiKey, setApiKey] = useState('');
+  const [saving, setSaving] = useState(false);
+
   const getStatusColor = () => {
     if (provider.configured) return 'text-emerald-400';
     return 'text-zinc-500';
@@ -128,6 +132,43 @@ const ProviderCard = ({ provider, testStatus, onTest }) => {
   const getStatusText = () => {
     if (provider.configured) return 'Configured';
     return 'Not configured';
+  };
+
+  const handleSave = async () => {
+    if (!apiKey || apiKey.trim() === '') {
+      alert('Bitte API Key eingeben');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const API = process.env.REACT_APP_BACKEND_URL || '';
+      const response = await fetch(`${API}/api/v1/settings/providers/${provider.id}/configure`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          config: {
+            api_key: apiKey
+          }
+        })
+      });
+
+      if (response.ok) {
+        alert(`${provider.name} API Key gespeichert!`);
+        setApiKey('');
+        setIsExpanded(false);
+        // Reload provider status
+        window.location.reload();
+      } else {
+        const data = await response.json();
+        alert(`Fehler: ${data.detail || 'Speichern fehlgeschlagen'}`);
+      }
+    } catch (error) {
+      console.error('Save error:', error);
+      alert('Fehler beim Speichern');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -149,8 +190,50 @@ const ProviderCard = ({ provider, testStatus, onTest }) => {
       {/* Description */}
       <p className="text-sm text-zinc-400 mb-4 line-clamp-2">{provider.description}</p>
 
+      {/* API Key Input (Expandable) */}
+      {isExpanded && (
+        <div className="mb-3 space-y-2 p-3 bg-zinc-900 rounded-lg border border-zinc-700">
+          <label className="text-xs text-zinc-400 block">API Key:</label>
+          <input
+            type="password"
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+            placeholder="sk-..."
+            className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded text-white text-sm focus:outline-none focus:border-blue-500"
+          />
+          <div className="flex gap-2">
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="flex-1 px-3 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded text-sm font-medium transition-colors disabled:opacity-50"
+            >
+              {saving ? 'Speichern...' : 'Speichern'}
+            </button>
+            <button
+              onClick={() => {
+                setIsExpanded(false);
+                setApiKey('');
+              }}
+              className="px-3 py-2 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 rounded text-sm transition-colors"
+            >
+              Abbrechen
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Actions */}
       <div className="space-y-2">
+        {/* Configure Button - Shows Input */}
+        {!isExpanded && (
+          <button
+            onClick={() => setIsExpanded(true)}
+            className="w-full px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-medium text-sm transition-colors"
+          >
+            🔑 Configure API Key
+          </button>
+        )}
+
         {/* Get API Key - Prominent Button */}
         <a
           href={provider.create_key_url}
