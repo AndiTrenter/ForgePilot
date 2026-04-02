@@ -2484,13 +2484,92 @@ REVIEW:
         elif tool_name == "mark_complete":
             summary = arguments["summary"]
             tested_features = arguments.get("tested_features", [])
+            
+            # 🚨 COMPLETION GATES: Quality Checks (wenn aktiviert)
+            gate_checks_passed = True
+            gate_report = []
+            
+            try:
+                # Import gate system
+                from core.config import get_config
+                config = get_config()
+                
+                if config.enable_completion_gates:
+                    await add_log(project_id, "info", "🔒 Prüfe Completion Gates...", "orchestrator")
+                    
+                    # Gate 1: Teste auf fehlgeschlagene Tests in Logs
+                    recent_logs = await db.logs.find(
+                        {"project_id": project_id, "level": "error"}
+                    ).sort("timestamp", -1).limit(10).to_list(10)
+                    
+                    if recent_logs:
+                        gate_checks_passed = False
+                        gate_report.append(f"❌ Gate 1 Failed: {len(recent_logs)} Error-Logs gefunden")
+                        await add_log(project_id, "warning", f"Gate Check: {len(recent_logs)} Errors in recent logs", "orchestrator")
+                    else:
+                        gate_report.append("✅ Gate 1 Passed: Keine Error-Logs")
+                    
+                    # Gate 2: Prüfe ob Files existieren
+                    files = list(workspace_path.rglob("*"))
+                    code_files = [f for f in files if f.suffix in ['.html', '.css', '.js', '.py', '.jsx', '.tsx']]
+                    
+                    if len(code_files) < 1:
+                        gate_checks_passed = False
+                        gate_report.append("❌ Gate 2 Failed: Keine Code-Dateien gefunden")
+                    else:
+                        gate_report.append(f"✅ Gate 2 Passed: {len(code_files)} Code-Dateien erstellt")
+                    
+                    # Gate 3: Prüfe ob tested_features angegeben wurden
+                    if not tested_features or len(tested_features) == 0:
+                        gate_checks_passed = False
+                        gate_report.append("❌ Gate 3 Failed: Keine tested_features angegeben")
+                    else:
+                        gate_report.append(f"✅ Gate 3 Passed: {len(tested_features)} Features getestet")
+                    
+                    # Gate Report in Logs
+                    gate_summary = "\n".join(gate_report)
+                    await add_log(project_id, "info", f"Gate Report:\n{gate_summary}", "orchestrator")
+                    
+                    if not gate_checks_passed:
+                        result["output"] = f"""🚨 COMPLETION GATES BLOCKIERT!
+
+Das Projekt kann noch nicht als fertig markiert werden. Folgende Checks sind fehlgeschlagen:
+
+{gate_summary}
+
+❗ Bitte behebe die Fehler und rufe dann mark_complete erneut auf.
+
+Was zu tun ist:
+1. Teste alle Features gründlich (browser_test)
+2. Behebe alle Fehler
+3. Gib tested_features an
+4. Rufe mark_complete erneut auf
+"""
+                        result["continue"] = True  # Agent soll weitermachen
+                        result["complete"] = False
+                        await add_log(project_id, "warning", "⛔ mark_complete blockiert durch Gates", "orchestrator")
+                        return result
+                    
+                    await add_log(project_id, "success", "✅ Alle Completion Gates bestanden!", "orchestrator")
+                
+            except Exception as gate_error:
+                logger.warning(f"Gate check error (non-critical): {gate_error}")
+                # Bei Gate-Fehler: Warnung aber fortfahren
+                await add_log(project_id, "warning", f"Gate check hatte Fehler: {gate_error}", "orchestrator")
+            
+            # Gates bestanden oder deaktiviert - Projekt abschließen
             await db.projects.update_one(
                 {"id": project_id},
                 {"$set": {"status": "ready_for_push", "pending_commit_message": summary, "tested_features": tested_features}}
             )
             await update_agent(project_id, "orchestrator", "completed", "Projekt fertig!")
             await add_log(project_id, "success", f"Projekt fertig: {summary}", "orchestrator")
-            result["output"] = f"✅ PROJEKT FERTIG!\n\n{summary}\n\nGetestete Features:\n• " + "\n• ".join(tested_features)
+            
+            output_msg = f"✅ PROJEKT FERTIG!\n\n{summary}\n\nGetestete Features:\n• " + "\n• ".join(tested_features)
+            if gate_report:
+                output_msg += f"\n\n🔒 Quality Gates:\n" + "\n".join(gate_report)
+            
+            result["output"] = output_msg
             result["continue"] = False
             result["complete"] = True
         
