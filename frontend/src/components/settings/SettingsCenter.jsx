@@ -151,16 +151,18 @@ const ProviderCard = ({ provider, testStatus, onTest }) => {
 
       {/* Actions */}
       <div className="space-y-2">
+        {/* Get API Key - Prominent Button */}
         <a
           href={provider.create_key_url}
           target="_blank"
           rel="noopener noreferrer"
-          className="flex items-center justify-between px-3 py-2 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 rounded text-sm transition-colors group"
+          className="flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-medium text-sm transition-colors w-full group"
         >
           <span>Get API Key</span>
-          <ExternalLink size={14} className="group-hover:translate-x-0.5 transition-transform" />
+          <ExternalLink size={16} className="group-hover:translate-x-0.5 transition-transform" />
         </a>
 
+        {/* Docs & Test Buttons */}
         <div className="flex gap-2">
           <a
             href={provider.docs_url}
