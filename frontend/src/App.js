@@ -1873,6 +1873,7 @@ const StartScreen = () => {
   const [showTemplates, setShowTemplates] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showSettingsCenter, setShowSettingsCenter] = useState(false); // NEW: Settings Center v2
+  const [showTerminal, setShowTerminal] = useState(false); // NEW: Update Terminal
   const [ollamaStatus, setOllamaStatus] = useState({ available: false });
   const [useOllama, setUseOllama] = useState(false);
   const [confirmModal, setConfirmModal] = useState({ isOpen: false, projectId: null, action: null });
@@ -2207,6 +2208,7 @@ Beispiel: Erstelle eine moderne Todo-App mit dunklem Design. Die App soll Todos 
         </div>
       </main>
 
+      {/* GitHub Import Modal */}
       {showGitHubModal && <GitHubImportModal onClose={() => setShowGitHubModal(false)} onImport={(p) => { setShowGitHubModal(false); navigate(`/workspace/${p.id}`); }} />}
       
       {/* Settings Modal (Legacy) */}
@@ -2221,6 +2223,13 @@ Beispiel: Erstelle eine moderne Todo-App mit dunklem Design. Die App soll Todos 
       <SettingsCenter
         isOpen={showSettingsCenter}
         onClose={() => setShowSettingsCenter(false)}
+      />
+
+      {/* Live Terminal Modal (Update) */}
+      <LiveTerminalModal
+        isOpen={showTerminal}
+        onClose={() => setShowTerminal(false)}
+        title="ForgePilot Update (Unraid)"
       />
       
       {/* Confirmation Modal */}
