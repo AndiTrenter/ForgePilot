@@ -27,7 +27,7 @@ APP_ROOT = ROOT_DIR.parent
 load_dotenv(ROOT_DIR / '.env')
 
 # App Version
-APP_VERSION = "1.1.0"
+APP_VERSION = "3.0.0"
 try:
     version_file = ROOT_DIR / "VERSION"
     if version_file.exists():
