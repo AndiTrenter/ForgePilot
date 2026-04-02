@@ -1343,6 +1343,47 @@ asyncio.run(take_screenshot())
         
         elif tool_name == "run_command":
             command = arguments["command"]
+            
+            # 🚨 BLOCK FORBIDDEN COMMANDS - npm_env, nodeenv, etc.
+            forbidden_patterns = [
+                'npm_env', 'nodeenv', 'python.*-m.*nodeenv', 
+                'virtualenv.*npm', 'corepack enable',
+                'npm_env/bin/', 'venv.*npm'
+            ]
+            
+            import re
+            for pattern in forbidden_patterns:
+                if re.search(pattern, command, re.IGNORECASE):
+                    await add_log(project_id, "error", f"❌ VERBOTENER BEFEHL BLOCKIERT: {command}", "coder")
+                    result["output"] = f"""❌ BEFEHL BLOCKIERT!
+
+Der Befehl '{command}' versucht eine isolierte npm-Umgebung zu erstellen.
+
+🚫 VERBOTEN: npm_env, nodeenv, corepack enable
+
+✅ Node.js v20.20.1, npm v10.8.2 und yarn v1.22.22 sind bereits installiert!
+
+NUTZE STATTDESSEN:
+  ✅ npm install
+  ✅ npm install --prefix client
+  ✅ npm install react react-dom
+  ✅ npm run build
+  ✅ yarn install
+
+BEISPIELE:
+  ❌ FALSCH: nodeenv npm_env
+  ✅ RICHTIG: npm install
+
+  ❌ FALSCH: npm_env/bin/npm install
+  ✅ RICHTIG: npm install
+
+  ❌ FALSCH: corepack enable
+  ✅ RICHTIG: npm install (funktioniert direkt!)
+"""
+                    result["continue"] = True
+                    await update_agent(project_id, "coder", "idle", "Blocked forbidden command")
+                    return result
+            
             safe_commands = ['npm', 'yarn', 'pip', 'python', 'node', 'cat', 'ls', 'mkdir', 'echo', 'cd']
             if not any(command.startswith(safe) for safe in safe_commands):
                 result["output"] = f"✗ Befehl nicht erlaubt: {command}"
