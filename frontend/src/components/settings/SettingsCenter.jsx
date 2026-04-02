@@ -32,15 +32,25 @@ const SettingsCenter = ({ isOpen, onClose }) => {
     setTestResults(prev => ({ ...prev, [providerId]: 'testing' }));
     try {
       const response = await axios.post(`${API}/api/v1/settings/providers/${providerId}/test`);
-      setTestResults(prev => ({ 
-        ...prev, 
-        [providerId]: response.data.success ? 'success' : 'error' 
-      }));
+      
+      if (response.data.success) {
+        setTestResults(prev => ({ ...prev, [providerId]: 'success' }));
+        // Show success message
+        alert(`✅ ${response.data.message}`);
+      } else {
+        setTestResults(prev => ({ ...prev, [providerId]: 'error' }));
+        // Show detailed error message
+        const errorMsg = response.data.message || response.data.error || 'Test fehlgeschlagen';
+        alert(`❌ Test fehlgeschlagen:\n\n${errorMsg}\n\nBitte prüfe:\n- API Key korrekt eingegeben?\n- Key bei Provider aktiviert?\n- Keine Tippfehler?`);
+      }
+      
       setTimeout(() => {
         setTestResults(prev => ({ ...prev, [providerId]: null }));
       }, 3000);
     } catch (error) {
       setTestResults(prev => ({ ...prev, [providerId]: 'error' }));
+      const errorMsg = error.response?.data?.message || error.message || 'Verbindungsfehler';
+      alert(`❌ Test fehlgeschlagen:\n\n${errorMsg}\n\nMögliche Ursachen:\n- API Key nicht konfiguriert\n- Ungültiger API Key\n- Netzwerkproblem`);
       setTimeout(() => {
         setTestResults(prev => ({ ...prev, [providerId]: null }));
       }, 3000);
