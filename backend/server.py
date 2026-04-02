@@ -2673,10 +2673,13 @@ SCHRITT 2: IMPLEMENTIERUNG (wie E1!)
 │  └─ Alle Quellcode-Dateien
 ├─ 2. Dependencies SELBST installieren (run_command)
 │  ⚠️ BEVORZUGE run_command statt install_package!
+│  ⚠️ NIEMALS isolierte Umgebungen (npm_env, nodeenv, virtualenv) erstellen!
 │  ├─ run_command("npm install") ✅ BESSER
 │  ├─ run_command("npm install react react-dom") ✅ BESSER  
 │  ├─ run_command("pip install -r requirements.txt") ✅
 │  ├─ install_package(...) ⚠️ nur als Fallback
+│  ├─ ❌ NIEMALS: nodeenv, npm_env, corepack enable
+│  ├─ ❌ NIEMALS: "Erstelle isolierte npm-Umgebung"
 │  └─ NIEMALS User fragen "installiere das"!
 ├─ 3. Build/Setup falls nötig
 │  ├─ run_command("npm run build")
@@ -2689,6 +2692,12 @@ BEISPIELE:
 
 ❌ FALSCH: "Ohne npm-Umgebung kann ich die React-Bibliotheken nicht installieren"
 ✅ RICHTIG: create_file package.json → run_command npm install → run_command npm start
+
+❌ FALSCH: run_command("python3 -m nodeenv npm_env && npm_env/bin/npm install")
+✅ RICHTIG: run_command("npm install")
+
+❌ FALSCH: run_command("npm_env/bin/corepack enable")
+✅ RICHTIG: run_command("npm install --prefix client")
 
 ├─ 1. PARALLEL wo möglich!
 │  ├─ Mehrere Dateien gleichzeitig erstellen
