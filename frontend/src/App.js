@@ -11,7 +11,7 @@ import {
   Check, Circle, ArrowRight, Lock, Globe, Upload, Search,
   ExternalLink, Mic, MicOff, Square, PanelRightClose, PanelRightOpen,
   Maximize2, Minimize2, Rocket, Paperclip, Image as ImageIcon,
-  Trash2, Download, Archive, ArchiveRestore, MonitorPlay
+  Trash2, Download, Archive, ArchiveRestore, MonitorPlay, CloudDownload
 } from "lucide-react";
 import DeployModal from "./DeployModal";
 import Prism from 'prismjs';
@@ -2037,6 +2037,12 @@ const StartScreen = () => {
           <Tooltip text="Einstellungen und Konfiguration" position="bottom">
             <button onClick={() => setShowSettingsCenter(true)} className="p-2 text-zinc-400 hover:text-white hover:bg-zinc-800/50 rounded-md transition-colors" data-testid="start-settings-btn">
               <Settings size={18} />
+            </button>
+          </Tooltip>
+          
+          <Tooltip text="ForgePilot Update (Unraid)" position="bottom">
+            <button onClick={() => setShowTerminal(true)} className="p-2 text-zinc-400 hover:text-white hover:bg-zinc-800/50 rounded-md transition-colors" data-testid="update-btn">
+              <CloudDownload size={18} />
             </button>
           </Tooltip>
         </div>
