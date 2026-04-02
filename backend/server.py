@@ -4099,7 +4099,15 @@ Antworte auf Deutsch."""
         logger.error(f"Chat response failed: {e}")
         raise HTTPException(status_code=500, detail=f"Chat response failed: {str(e)}")
 
-# Include router
+# Include API v1 Routers (NEW MODULE SYSTEM)
+try:
+    from api.v1 import settings as settings_api
+    app.include_router(settings_api.router, prefix="/api/v1")
+    logger.info("✅ API v1 Settings Router loaded")
+except Exception as e:
+    logger.warning(f"⚠️  API v1 Settings Router not available: {e}")
+
+# Include legacy router
 app.include_router(api_router)
 
 app.add_middleware(CORSMiddleware, allow_credentials=True, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])

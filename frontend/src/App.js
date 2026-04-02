@@ -1872,6 +1872,7 @@ const StartScreen = () => {
   const [showGitHubModal, setShowGitHubModal] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showSettingsCenter, setShowSettingsCenter] = useState(false); // NEW: Settings Center v2
   const [ollamaStatus, setOllamaStatus] = useState({ available: false });
   const [useOllama, setUseOllama] = useState(false);
   const [confirmModal, setConfirmModal] = useState({ isOpen: false, projectId: null, action: null });
@@ -2034,7 +2035,7 @@ const StartScreen = () => {
             </button>
           </Tooltip>
           <Tooltip text="Einstellungen und Konfiguration" position="bottom">
-            <button onClick={() => setShowSettings(true)} className="p-2 text-zinc-400 hover:text-white hover:bg-zinc-800/50 rounded-md transition-colors" data-testid="start-settings-btn">
+            <button onClick={() => setShowSettingsCenter(true)} className="p-2 text-zinc-400 hover:text-white hover:bg-zinc-800/50 rounded-md transition-colors" data-testid="start-settings-btn">
               <Settings size={18} />
             </button>
           </Tooltip>
@@ -2202,12 +2203,19 @@ Beispiel: Erstelle eine moderne Todo-App mit dunklem Design. Die App soll Todos 
 
       {showGitHubModal && <GitHubImportModal onClose={() => setShowGitHubModal(false)} onImport={(p) => { setShowGitHubModal(false); navigate(`/workspace/${p.id}`); }} />}
       
+      {/* Settings Modal (Legacy) */}
       {showSettings && (
         <SettingsModal 
           isOpen={showSettings} 
           onClose={() => setShowSettings(false)}
         />
       )}
+
+      {/* Settings Center v2 (NEW MODULAR SYSTEM) */}
+      <SettingsCenter
+        isOpen={showSettingsCenter}
+        onClose={() => setShowSettingsCenter(false)}
+      />
       
       {/* Confirmation Modal */}
       <ConfirmationModal
