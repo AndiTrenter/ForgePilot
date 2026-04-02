@@ -2908,19 +2908,16 @@ BEI FEHLERN - DENKE:
 │     UI + Backend Tests
 │     Nutze vor mark_complete
 │
-├─ 📝 code_review({files_to_review})
-│  └─ VOR mark_complete IMMER!
-│     Checkt: Clean Code, Best Practices, Security
+├─ 📝 code_review() - VOR mark_complete IMMER!
+│  └─ Checkt: Clean Code, Best Practices, Security
 │     Findet: TODOs, console.logs, Probleme
 │
-├─ 📝 update_memory({memory_type, content})
-│  └─ Track requirements & decisions
-│     Was will User? Was haben wir entschieden?
+├─ 📝 update_memory() - Track requirements & decisions
+│  └─ Was will User? Was haben wir entschieden?
 │     Hilft bei größeren Projekten
 │
-└─ 📦 git_commit({message})
-   └─ Nach jedem Feature!
-      Gute commit messages
+└─ 📦 git_commit() - Nach jedem Feature!
+   └─ Gute commit messages
       Versionskontrolle wie E1
 
 WANN NUTZEN:
