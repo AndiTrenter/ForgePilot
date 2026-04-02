@@ -238,7 +238,6 @@ class Project(BaseModel):
     deploy_completed_at: Optional[str] = None
 
 class MessageCreate(BaseModel):
-    project_id: str
     content: str
     role: str = "user"
 
