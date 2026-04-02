@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import "@/App.css";
 import { BrowserRouter, Routes, Route, useNavigate, useParams } from "react-router-dom";
 import axios from "axios";
+import SettingsCenter from "./components/settings/SettingsCenter";
 import { 
   Send, Loader2, GitBranch, FolderGit2, Play, RefreshCw, 
   Home, Settings, ChevronRight, FileCode, Terminal, 
