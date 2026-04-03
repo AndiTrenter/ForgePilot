@@ -2,17 +2,8 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Settings, ExternalLink, Check, X, Loader2, TestTube2 } from 'lucide-react';
 
-// API Base URL - use current origin if env var not available
-const getApiBase = () => {
-  // In production, REACT_APP_BACKEND_URL should be set
-  if (process.env.REACT_APP_BACKEND_URL) {
-    return process.env.REACT_APP_BACKEND_URL;
-  }
-  // Fallback: use current window origin (works for same-domain setup)
-  return window.location.origin;
-};
-
-const API = getApiBase();
+// API Base URL - FIXED for Unraid
+const API = '';  // Empty string = relative path = uses current domain
 
 const SettingsCenter = ({ isOpen, onClose }) => {
   const [providers, setProviders] = useState([]);
@@ -29,10 +20,13 @@ const SettingsCenter = ({ isOpen, onClose }) => {
   const loadProviders = async () => {
     try {
       setLoading(true);
-      const response = await axios.get(`${API}/api/v1/settings/providers`);
+      console.log('Loading providers from:', `/api/v1/settings/providers`);
+      const response = await axios.get(`/api/v1/settings/providers`);
+      console.log('Providers loaded:', response.data);
       setProviders(response.data);
     } catch (error) {
       console.error('Failed to load providers:', error);
+      alert(`Fehler: ${error.message}`);
     } finally {
       setLoading(false);
     }
@@ -41,7 +35,7 @@ const SettingsCenter = ({ isOpen, onClose }) => {
   const testConnection = async (providerId) => {
     setTestResults(prev => ({ ...prev, [providerId]: 'testing' }));
     try {
-      const response = await axios.post(`${API}/api/v1/settings/providers/${providerId}/test`);
+      const response = await axios.post(`/api/v1/settings/providers/${providerId}/test`);
       
       if (response.data.success) {
         setTestResults(prev => ({ ...prev, [providerId]: 'success' }));
@@ -162,8 +156,7 @@ const ProviderCard = ({ provider, testStatus, onTest }) => {
 
     setSaving(true);
     try {
-      const API = process.env.REACT_APP_BACKEND_URL || '';
-      const response = await fetch(`${API}/api/v1/settings/providers/${provider.id}/configure`, {
+      const response = await fetch(`/api/v1/settings/providers/${provider.id}/configure`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
