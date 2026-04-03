@@ -2,7 +2,17 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Settings, ExternalLink, Check, X, Loader2, TestTube2 } from 'lucide-react';
 
-const API = process.env.REACT_APP_BACKEND_URL || '';
+// API Base URL - use current origin if env var not available
+const getApiBase = () => {
+  // In production, REACT_APP_BACKEND_URL should be set
+  if (process.env.REACT_APP_BACKEND_URL) {
+    return process.env.REACT_APP_BACKEND_URL;
+  }
+  // Fallback: use current window origin (works for same-domain setup)
+  return window.location.origin;
+};
+
+const API = getApiBase();
 
 const SettingsCenter = ({ isOpen, onClose }) => {
   const [providers, setProviders] = useState([]);
