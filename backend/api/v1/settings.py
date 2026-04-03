@@ -82,7 +82,7 @@ async def get_provider(
 @router.post("/providers/{provider_id}/configure")
 async def configure_provider(
     provider_id: str,
-    config: Dict[str, str],
+    request: ProviderConfigRequest,
     db = Depends(get_db),
     registry: ProviderRegistry = Depends(get_registry)
 ):
@@ -96,7 +96,7 @@ async def configure_provider(
         {"_id": f"provider_{provider_id}"},
         {"$set": {
             "provider_id": provider_id,
-            "config": config,
+            "config": request.config,
             "updated_at": datetime.now(timezone.utc).isoformat()
         }},
         upsert=True
