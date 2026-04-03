@@ -1,11 +1,9 @@
 #!/bin/bash
-# EMERGENCY FIX SCRIPT FOR UNRAID
+# EMERGENCY FIX SCRIPT FOR UNRAID v2
 # Run this in Unraid Terminal to fix EVERYTHING
 
-set -e  # Exit on error
-
-echo "🚨 ForgePilot Emergency Fix Script"
-echo "=================================="
+echo "🚨 ForgePilot Emergency Fix Script v2"
+echo "====================================="
 echo ""
 
 # Navigate to directory
@@ -17,9 +15,9 @@ cd /mnt/user/appdata/forgepilot || {
 echo "📍 Current directory: $(pwd)"
 echo ""
 
-# Stop containers
-echo "🛑 Stopping containers..."
-docker-compose down
+# Stop containers completely
+echo "🛑 Stopping containers and removing networks..."
+docker-compose down --remove-orphans --volumes
 echo ""
 
 # Pull latest code
@@ -28,15 +26,21 @@ git fetch --all
 git reset --hard origin/main
 echo ""
 
-# Copy update script
-echo "📝 Installing update.sh script..."
+# Verify scripts exist
+echo "📝 Checking scripts..."
 if [ -f "update.sh" ]; then
-    cp update.sh /mnt/user/appdata/forgepilot/
-    chmod +x /mnt/user/appdata/forgepilot/update.sh
-    echo "✅ update.sh installed"
-else
-    echo "⚠️  update.sh not found in repo - will create manually"
+    chmod +x update.sh
+    echo "✅ update.sh found and executable"
 fi
+if [ -f "EMERGENCY_FIX.sh" ]; then
+    chmod +x EMERGENCY_FIX.sh
+    echo "✅ EMERGENCY_FIX.sh found and executable"
+fi
+echo ""
+
+# Clean Docker cache
+echo "🧹 Cleaning Docker cache..."
+docker system prune -f
 echo ""
 
 # Rebuild containers
@@ -59,16 +63,22 @@ echo "📊 Container Status:"
 docker-compose ps
 echo ""
 
-# Test API
-echo "🧪 Testing API v1..."
-docker exec forgepilot-backend curl -s http://localhost:8001/api/v1/settings/providers | head -20
+# Test backend API
+echo "🧪 Testing Backend API..."
+sleep 5
+BACKEND_RUNNING=$(docker-compose ps | grep forgepilot-backend | grep "Up" || echo "")
+if [ -n "$BACKEND_RUNNING" ]; then
+    docker exec forgepilot-backend curl -s http://localhost:8001/api/v1/settings/providers | head -20 || echo "⚠️ API not ready yet"
+else
+    echo "⚠️ Backend container not running yet"
+fi
 echo ""
 
 echo "✅ Emergency Fix Complete!"
 echo ""
-echo "🎯 NEXT STEPS:"
-echo "1. Open browser: http://192.168.1.140:3000"
-echo "2. Clear all browser data (Ctrl + Shift + Delete)"
-echo "3. Reload page"
-echo "4. Open Settings - should show 4 Provider Cards"
+echo "🎯 NÄCHSTE SCHRITTE:"
+echo "1. Browser öffnen: http://192.168.1.140:3000"
+echo "2. Hard Refresh: Ctrl + Shift + R (oder Ctrl + F5)"
+echo "3. Zu Settings navigieren - Sie sollten 4 Provider Cards sehen"
+echo "4. Wenn immer noch leer: Entwicklertools öffnen (F12) → Console → Fehler prüfen"
 echo ""
