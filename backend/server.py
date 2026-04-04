@@ -756,14 +756,25 @@ async def execute_update_live():
     
     async def generate_output():
         """Stream update script output line by line"""
-        update_script = Path("/mnt/user/appdata/forgepilot/update.sh")
+        # Try Unraid path first, then dev path
+        update_script_paths = [
+            Path("/mnt/user/appdata/forgepilot/update.sh"),
+            Path("/app/update.sh")
+        ]
+        
+        update_script = None
+        for path in update_script_paths:
+            if path.exists():
+                update_script = path
+                break
         
         # Check if script exists
-        if not update_script.exists():
-            yield f"data: {{\"type\": \"error\", \"message\": \"Update-Script nicht gefunden: {update_script}\"}}\n\n"
+        if not update_script:
+            yield f"data: {{\"type\": \"error\", \"message\": \"Update-Script nicht gefunden (geprüft: {', '.join([str(p) for p in update_script_paths])})\"}}\n\n"
             return
         
         yield f"data: {{\"type\": \"info\", \"message\": \"ForgePilot Update Script\"}}\n\n"
+        yield f"data: {{\"type\": \"info\", \"message\": \"Script gefunden: {update_script}\"}}\n\n"
         yield f"data: {{\"type\": \"info\", \"message\": \"Starte Update...\"}}\n\n"
         
         try:
@@ -773,7 +784,7 @@ async def execute_update_live():
                 str(update_script),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
-                cwd="/mnt/user/appdata/forgepilot"
+                cwd=str(update_script.parent)
             )
             
             # Stream output line by line

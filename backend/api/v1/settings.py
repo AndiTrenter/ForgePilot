@@ -13,6 +13,11 @@ from api.dependencies import get_db, get_settings, get_registry
 router = APIRouter(prefix="/settings", tags=["settings"])
 
 
+class ProviderConfigRequest(BaseModel):
+    """Provider-Konfiguration Request (API Keys, etc.)"""
+    config: Dict[str, Any]
+
+
 class ProviderConfigUpdate(BaseModel):
     """Provider-Konfiguration Update"""
     field_name: str

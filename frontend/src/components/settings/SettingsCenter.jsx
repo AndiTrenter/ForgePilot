@@ -2,8 +2,8 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Settings, ExternalLink, Check, X, Loader2, TestTube2 } from 'lucide-react';
 
-// API Base URL - FIXED for Unraid
-const API = '';  // Empty string = relative path = uses current domain
+// API Base URL - from environment variable
+const API = process.env.REACT_APP_BACKEND_URL || '';
 
 const SettingsCenter = ({ isOpen, onClose }) => {
   const [providers, setProviders] = useState([]);
@@ -20,13 +20,14 @@ const SettingsCenter = ({ isOpen, onClose }) => {
   const loadProviders = async () => {
     try {
       setLoading(true);
-      console.log('Loading providers from:', `/api/v1/settings/providers`);
-      const response = await axios.get(`/api/v1/settings/providers`);
+      const url = `${API}/api/v1/settings/providers`;
+      console.log('Loading providers from:', url);
+      const response = await axios.get(url);
       console.log('Providers loaded:', response.data);
       setProviders(response.data);
     } catch (error) {
       console.error('Failed to load providers:', error);
-      alert(`Fehler: ${error.message}`);
+      alert(`Fehler beim Laden der Provider: ${error.message}`);
     } finally {
       setLoading(false);
     }
@@ -35,7 +36,7 @@ const SettingsCenter = ({ isOpen, onClose }) => {
   const testConnection = async (providerId) => {
     setTestResults(prev => ({ ...prev, [providerId]: 'testing' }));
     try {
-      const response = await axios.post(`/api/v1/settings/providers/${providerId}/test`);
+      const response = await axios.post(`${API}/api/v1/settings/providers/${providerId}/test`);
       
       if (response.data.success) {
         setTestResults(prev => ({ ...prev, [providerId]: 'success' }));
