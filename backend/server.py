@@ -997,6 +997,7 @@ AGENT_TOOLS = [
     {"type": "function", "function": {"name": "setup_docker_service", "description": "Setup Docker service (MongoDB, PostgreSQL, Redis, MySQL, etc.) via docker-compose. Creates docker-compose.yml with the service.", "parameters": {"type": "object", "properties": {"service_type": {"type": "string", "enum": ["mongodb", "postgresql", "mysql", "redis", "elasticsearch", "rabbitmq", "custom"], "description": "Type of service to setup"}, "service_name": {"type": "string", "description": "Name for the service container"}, "port": {"type": "integer", "description": "Port to expose (optional)"}, "custom_config": {"type": "object", "description": "Custom docker-compose config for service (optional)"}}, "required": ["service_type", "service_name"]}}},
     {"type": "function", "function": {"name": "install_package", "description": "Install npm or pip package in the project", "parameters": {"type": "object", "properties": {"package_manager": {"type": "string", "enum": ["npm", "pip", "yarn"], "description": "Package manager to use"}, "package_name": {"type": "string", "description": "Package name to install"}, "save_dev": {"type": "boolean", "default": False, "description": "Save as dev dependency (npm only)"}}, "required": ["package_manager", "package_name"]}}},
     {"type": "function", "function": {"name": "browser_test", "description": "CRITICAL: Test app in browser like a real user. MUST be called before mark_complete! Opens preview, fills forms, clicks buttons, validates functionality.", "parameters": {"type": "object", "properties": {"test_scenarios": {"type": "array", "items": {"type": "string"}, "description": "List of scenarios to test (e.g., 'Fill contact form and submit', 'Click all navigation links', 'Test recipe search')"}, "preview_url": {"type": "string", "description": "URL to test (default: uses project preview)"}}, "required": ["test_scenarios"]}}},
+    {"type": "function", "function": {"name": "build_app", "description": "Build React/Vue/Vite app for production. Runs 'npm run build' or 'yarn build'. MUST be called before preview/testing for React/Vue apps!", "parameters": {"type": "object", "properties": {"build_command": {"type": "string", "description": "Custom build command (optional, defaults to 'npm run build')", "default": "npm run build"}}, "required": []}}},
     {"type": "function", "function": {"name": "troubleshoot", "description": "Call when STUCK after 2-3 failed attempts. Expert analyzes problem and suggests alternative solutions.", "parameters": {"type": "object", "properties": {"problem": {"type": "string", "description": "What are you stuck on?"}, "attempted_solutions": {"type": "array", "items": {"type": "string"}, "description": "What have you tried?"}}, "required": ["problem", "attempted_solutions"]}}},
     {"type": "function", "function": {"name": "get_integration_playbook", "description": "Get expert playbook for 3rd party APIs (OpenAI, Stripe, etc.). Returns latest SDKs, code examples, best practices.", "parameters": {"type": "object", "properties": {"integration": {"type": "string", "description": "e.g., 'OpenAI GPT-4', 'Stripe Payment', 'MongoDB'"}, "use_case": {"type": "string", "description": "What do you want to do?"}}, "required": ["integration"]}}},
     {"type": "function", "function": {"name": "get_design_guidelines", "description": "Get professional UI/UX design guidelines. Returns color schemes, layouts, component design.", "parameters": {"type": "object", "properties": {"app_type": {"type": "string", "description": "e.g., 'dashboard', 'landing_page', 'ecommerce'"}, "style": {"type": "string", "description": "e.g., 'modern', 'minimalist', 'playful' (optional)"}}, "required": ["app_type"]}}},
@@ -1115,6 +1116,7 @@ async def execute_tool(tool_name: str, arguments: dict, workspace_path: Path, pr
         "verify_game": "tester",
         "debug_error": "debugger",
         "run_command": "tester",
+        "build_app": "coder",
         "mark_complete": "orchestrator",
         "ask_user": "orchestrator"
     }
@@ -1410,6 +1412,89 @@ BEISPIELE:
                 except subprocess.TimeoutExpired:
                     result["output"] = f"✗ Timeout: {command}"
         
+        
+        elif tool_name == "build_app":
+            """Build React/Vue/Vite app for production"""
+            build_command = arguments.get("build_command", "npm run build")
+            
+            await add_log(project_id, "info", f"📦 Building app: {build_command}", "coder")
+            await update_agent(project_id, "coder", "running", f"Building app...")
+            
+            try:
+                # Check if package.json exists
+                package_json = workspace_path / "package.json"
+                if not package_json.exists():
+                    result["output"] = "❌ package.json not found. This is not a Node.js project."
+                    await add_log(project_id, "error", "Build failed: No package.json", "coder")
+                else:
+                    # Ensure node_modules exist
+                    if not (workspace_path / "node_modules").exists():
+                        await add_log(project_id, "info", "📦 Installing dependencies first...", "coder")
+                        install_proc = subprocess.run(
+                            "npm install",
+                            shell=True,
+                            cwd=workspace_path,
+                            capture_output=True,
+                            text=True,
+                            timeout=300,
+                            env={**os.environ, 'PATH': '/usr/bin:/usr/local/bin:' + os.environ.get('PATH', '')}
+                        )
+                        if install_proc.returncode != 0:
+                            result["output"] = f"❌ npm install failed:\n{install_proc.stderr[:500]}"
+                            await add_log(project_id, "error", "Dependency installation failed", "coder")
+                            return result
+                    
+                    # Run build command
+                    env = os.environ.copy()
+                    env['PATH'] = '/usr/bin:/usr/local/bin:' + env.get('PATH', '')
+                    env['CI'] = 'false'  # Disable CI mode warnings
+                    
+                    proc = subprocess.run(
+                        build_command,
+                        shell=True,
+                        cwd=workspace_path,
+                        capture_output=True,
+                        text=True,
+                        timeout=300,
+                        env=env
+                    )
+                    
+                    output = proc.stdout + proc.stderr
+                    
+                    if proc.returncode == 0:
+                        # Check if build output exists
+                        build_dirs = ["build", "dist", ".next"]
+                        build_found = None
+                        for build_dir in build_dirs:
+                            if (workspace_path / build_dir).exists():
+                                build_found = build_dir
+                                break
+                        
+                        if build_found:
+                            await add_log(project_id, "success", f"✅ Build erfolgreich! Output: {build_found}/", "coder")
+                            result["output"] = f"""✅ Build erfolgreich!
+
+Build Output: {build_found}/
+Command: {build_command}
+
+Preview ist jetzt verfügbar!
+
+{output[:500]}"""
+                        else:
+                            result["output"] = f"⚠️ Build completed but no build/ or dist/ directory found.\n{output[:500]}"
+                    else:
+                        await add_log(project_id, "error", f"Build failed", "coder")
+                        result["output"] = f"❌ Build fehlgeschlagen:\n{output[:800]}"
+                
+            except subprocess.TimeoutExpired:
+                result["output"] = "❌ Build timeout (>5 minutes). Check build configuration."
+                await add_log(project_id, "error", "Build timeout", "coder")
+            except Exception as e:
+                result["output"] = f"❌ Build error: {str(e)}"
+                await add_log(project_id, "error", f"Build exception: {str(e)}", "coder")
+            
+            await update_agent(project_id, "coder", "idle", "Build complete")
+
         elif tool_name == "create_roadmap":
             last_item = await db.roadmap.find_one({"project_id": project_id}, sort=[("order", -1)])
             next_order = (last_item.get("order", 0) + 1) if last_item else 0
@@ -2775,8 +2860,10 @@ SCHRITT 2: IMPLEMENTIERUNG (wie E1!)
 │  ├─ ❌ NIEMALS: "Erstelle isolierte npm-Umgebung"
 │  └─ NIEMALS User fragen "installiere das"!
 ├─ 3. Build/Setup falls nötig
-│  ├─ run_command("npm run build")
-│  └─ run_command("python setup.py")
+│  ├─ React/Vue/Vite Apps: build_app() PFLICHT vor Preview!
+│  ├─ build_app() baut automatisch (npm run build)
+│  ├─ run_command("python setup.py") für Python Apps
+│  └─ NIEMALS manuell npm run build - nutze build_app()!
 └─ 4. Preview testen (browser_test)
 
 BEISPIELE:
@@ -3891,13 +3978,14 @@ async def serve_preview(project_id: str, file_path: str = "index.html"):
     target_path = workspace / (file_path or "index.html")
     
     if not target_path.exists():
-        for entry in ["index.html", "public/index.html", "dist/index.html"]:
+        # Try common build output directories for React/Vue/Vite apps
+        for entry in ["index.html", "build/index.html", "dist/index.html", "public/index.html"]:
             if (workspace / entry).exists():
                 target_path = workspace / entry
                 break
     
     if not target_path.exists():
-        raise HTTPException(status_code=404, detail="File not found")
+        raise HTTPException(status_code=404, detail=f"Preview file not found. Tried: index.html, build/index.html, dist/index.html, public/index.html")
     
     content_types = {".html": "text/html", ".css": "text/css", ".js": "application/javascript", ".json": "application/json", ".png": "image/png", ".jpg": "image/jpeg", ".svg": "image/svg+xml"}
     return FileResponse(target_path, media_type=content_types.get(target_path.suffix.lower(), "text/plain"))
@@ -3910,7 +3998,7 @@ async def get_preview_info(project_id: str):
     
     workspace = Path(project.get('workspace_path', WORKSPACES_DIR / project_id))
     entry_point = None
-    for ep in ["index.html", "public/index.html", "dist/index.html"]:
+    for ep in ["build/index.html", "dist/index.html", "index.html", "public/index.html"]:
         if (workspace / ep).exists():
             entry_point = ep
             break
