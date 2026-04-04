@@ -121,7 +121,10 @@ const Logo = () => (
         <path d="M2 12L12 17L22 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
       </svg>
     </div>
-    <span className="bg-gradient-to-r from-white to-zinc-300 bg-clip-text text-transparent">ForgePilot</span>
+    <span className="bg-gradient-to-r from-white to-zinc-300 bg-clip-text text-transparent flex items-center gap-2">
+      ForgePilot
+      <span className="text-[10px] text-zinc-500 font-normal">v3.0.3</span>
+    </span>
   </div>
 );
 
