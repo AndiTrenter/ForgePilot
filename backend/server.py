@@ -756,21 +756,16 @@ async def execute_update_live():
     
     async def generate_output():
         """Stream update script output line by line"""
-        # Try Unraid path first, then dev path
-        update_script_paths = [
-            Path("/mnt/user/appdata/forgepilot/update.sh"),
-            Path("/app/update.sh")
-        ]
+        # HARDCODED: Unraid verwendet updater-service.sh im Root
+        update_script = Path("/mnt/user/appdata/forgepilot/updater-service.sh")
         
-        update_script = None
-        for path in update_script_paths:
-            if path.exists():
-                update_script = path
-                break
+        # Fallback für Dev-Umgebung
+        if not update_script.exists():
+            update_script = Path("/app/update.sh")
         
         # Check if script exists
-        if not update_script:
-            yield f"data: {{\"type\": \"error\", \"message\": \"Update-Script nicht gefunden (geprüft: {', '.join([str(p) for p in update_script_paths])})\"}}\n\n"
+        if not update_script.exists():
+            yield f"data: {{\"type\": \"error\", \"message\": \"Update-Script nicht gefunden: {update_script}. Bitte stellen Sie sicher, dass updater-service.sh im Hauptverzeichnis existiert.\"}}\n\n"
             return
         
         yield f"data: {{\"type\": \"info\", \"message\": \"ForgePilot Update Script\"}}\n\n"

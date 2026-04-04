@@ -2,11 +2,22 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install system dependencies including curl for healthcheck
+# Install system dependencies including Node.js for orchestrator workspaces
 RUN apt-get update && apt-get install -y \
     git \
     curl \
+    wget \
+    gnupg \
     && rm -rf /var/lib/apt/lists/*
+
+# Install Node.js 20.x (LTS) and npm
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y nodejs \
+    && npm install -g yarn \
+    && rm -rf /var/lib/apt/lists/*
+
+# Verify installations
+RUN node --version && npm --version && yarn --version
 
 # Copy requirements and install
 COPY requirements.txt .
