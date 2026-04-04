@@ -56,6 +56,11 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        # WICHTIG: Diese URL muss auf die EXTERNE Adresse zeigen, nicht auf localhost!
+        # Für Unraid: http://192.168.1.140:8001
+        # Für andere: http://YOUR_SERVER_IP:8001
+        REACT_APP_BACKEND_URL: ${REACT_APP_BACKEND_URL:-http://localhost:8001}
     container_name: forgepilot-frontend
     restart: unless-stopped
     depends_on:
