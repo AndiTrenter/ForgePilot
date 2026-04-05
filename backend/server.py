@@ -2085,8 +2085,50 @@ if __name__ == "__main__":
             with open(compose_path, 'w') as f:
                 yaml.dump(docker_compose, f, default_flow_style=False)
             
-            result["output"] = f"✓ Docker Compose für {service_type} erstellt: {service_name}\nDatei: docker-compose.yml\nStarte mit: docker-compose up -d"
-            await add_log(project_id, "success", f"{service_type} Service konfiguriert", "coder")
+            await add_log(project_id, "success", f"docker-compose.yml erstellt", "coder")
+            
+            # START THE SERVICE AUTOMATICALLY!
+            try:
+                await add_log(project_id, "info", f"Starte {service_type} Container...", "coder")
+                
+                # docker-compose up -d
+                proc = subprocess.run(
+                    ["docker-compose", "up", "-d"],
+                    cwd=workspace_path,
+                    capture_output=True,
+                    text=True,
+                    timeout=120
+                )
+                
+                if proc.returncode == 0:
+                    await add_log(project_id, "success", f"✅ {service_type} läuft auf Port {port or 'default'}", "coder")
+                    
+                    # Connection info
+                    connection_info = {
+                        "mongodb": f"mongodb://admin:password@localhost:{port or 27017}/database",
+                        "postgresql": f"postgresql://admin:password@localhost:{port or 5432}/database",
+                        "mysql": f"mysql://root:password@localhost:{port or 3306}/database",
+                        "redis": f"redis://localhost:{port or 6379}",
+                    }.get(service_type, f"Service running on port {port}")
+                    
+                    result["output"] = f"""✅ {service_type} Service gestartet!
+
+Service: {service_name}
+Port: {port or 'default'}
+Status: Running
+
+Connection String:
+{connection_info}
+
+⏳ Warte 5 Sekunden bis Service bereit ist:
+   run_command("sleep 5")
+
+Dann kannst du die App starten!"""
+                else:
+                    result["output"] = f"⚠️ docker-compose.yml erstellt, aber Start fehlgeschlagen:\n{proc.stderr[:500]}\n\nManuel starten: docker-compose up -d"
+            except Exception as e:
+                result["output"] = f"✓ docker-compose.yml erstellt\n⚠️ Auto-Start fehlgeschlagen: {str(e)}\nManuel starten: docker-compose up -d"
+            
             await update_agent(project_id, "coder", "completed", "Service Setup complete")
         
         elif tool_name == "install_package":
@@ -2848,6 +2890,26 @@ SCHRITT 2: IMPLEMENTIERUNG (wie E1!)
 ├─ 1. Dateien erstellen
 │  ├─ create_file("package.json", {...}) für Node/React
 │  ├─ create_file("requirements.txt", {...}) für Python
+│  └─ Alle nötigen Source-Dateien
+├─ 2. Dependencies installieren  
+│  ├─ run_command("npm install")
+│  ├─ run_command("pip install -r requirements.txt")
+│  └─ ❌ NIEMALS: nodeenv, npm_env
+├─ 3. Services einrichten (KRITISCH!)
+│  ├─ MongoDB braucht? → setup_docker_service("mongodb", "mongo", 27017)
+│  ├─ PostgreSQL braucht? → setup_docker_service("postgresql", "postgres", 5432)
+│  ├─ ⚠️ WICHTIG: Services VOR Tests starten!
+│  ├─ Warten nach Service-Start: run_command("sleep 5")
+│  └─ Connection-String bereitstellen (z.B. mongodb://admin:password@localhost:27017/)
+├─ 4. Build für React/Vue Apps (PFLICHT!)
+│  ├─ ✅ RICHTIG: build_app() → erstellt build/ Verzeichnis
+│  ├─ ❌ FALSCH: npm start (funktioniert nicht in Preview!)
+│  ├─ ❌ FALSCH: npm run dev (funktioniert nicht in Preview!)
+│  └─ Preview ist ERST verfügbar NACH build_app()!
+└─ 5. Testen mit browser_test
+   ├─ NUR NACH build_app() für React/Vue!
+   ├─ NUR NACH setup_docker_service() für DB-Apps!
+   └─ Teste ALLE Features gründlich!
 │  └─ Alle Quellcode-Dateien
 ├─ 2. Dependencies SELBST installieren (run_command)
 │  ⚠️ BEVORZUGE run_command statt install_package!
@@ -2864,7 +2926,56 @@ SCHRITT 2: IMPLEMENTIERUNG (wie E1!)
 │  ├─ build_app() baut automatisch (npm run build)
 │  ├─ run_command("python setup.py") für Python Apps
 │  └─ NIEMALS manuell npm run build - nutze build_app()!
-└─ 4. Preview testen (browser_test)
+└─ 5. Testen mit browser_test
+   ├─ NUR NACH build_app() für React/Vue!
+   ├─ NUR NACH setup_docker_service() für DB-Apps!
+   └─ Teste ALLE Features gründlich!
+
+🔥 KRITISCHE BEISPIELE - LERNE DIESE!:
+
+BEISPIEL 1: React Todo-App mit MongoDB
+```
+1. create_file("package.json", {...react, express, mongoose...})
+2. create_file("src/App.js", {...})
+3. run_command("npm install")
+4. setup_docker_service("mongodb", "todo-mongo", 27017)  ← PFLICHT!
+5. run_command("sleep 5")  ← Warte auf MongoDB!
+6. build_app()  ← Baut React App!
+7. browser_test(["Add todo", "Mark complete", "Delete todo"])
+```
+
+BEISPIEL 2: Express API mit PostgreSQL
+```
+1. create_file("package.json", {...express, pg...})
+2. create_file("server.js", {...})
+3. run_command("npm install")
+4. setup_docker_service("postgresql", "api-db", 5432)  ← PFLICHT!
+5. run_command("sleep 5")
+6. run_command("node server.js &")  ← Start server in background
+7. browser_test(["GET /api/users", "POST /api/users"])
+```
+
+BEISPIEL 3: Simple HTML-App (KEIN React)
+```
+1. create_file("index.html", {...})
+2. create_file("style.css", {...})
+3. create_file("script.js", {...})
+4. browser_test(["Click button", "Verify animation"])
+```
+
+❌ HÄUFIGE FEHLER - VERMEIDE DIESE:
+
+FEHLER 1: MongoDB-App OHNE setup_docker_service
+→ Resultat: "MongooseServerSelectionError"
+→ FIX: IMMER setup_docker_service VOR run_command!
+
+FEHLER 2: React-App mit npm start
+→ Resultat: Preview zeigt weißen Bildschirm
+→ FIX: build_app() statt npm start!
+
+FEHLER 3: Tests VOR Service-Start
+→ Resultat: Connection refused
+→ FIX: setup_docker_service → sleep 5 → DANN Tests!
 
 BEISPIELE:
 ❌ FALSCH: "Bitte installiere Node.js auf deinem System"
