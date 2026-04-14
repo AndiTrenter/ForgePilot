@@ -26,6 +26,19 @@ ROOT_DIR = Path(__file__).parent
 APP_ROOT = ROOT_DIR.parent
 load_dotenv(ROOT_DIR / '.env')
 
+# Ensure critical environment variables are available for subprocess execution
+# Supervisor may not pass all env vars, so we set defaults for missing ones
+if 'HOME' not in os.environ:
+    os.environ['HOME'] = '/root'
+if 'PLAYWRIGHT_BROWSERS_PATH' not in os.environ:
+    # Check common playwright browser locations
+    for path in ['/pw-browsers', '/root/.cache/ms-playwright']:
+        if os.path.isdir(path):
+            os.environ['PLAYWRIGHT_BROWSERS_PATH'] = path
+            break
+if 'USER' not in os.environ:
+    os.environ['USER'] = 'root'
+
 # App Version
 APP_VERSION = "3.0.0"
 try:
@@ -1107,16 +1120,35 @@ async def execute_tool(tool_name: str, arguments: dict, workspace_path: Path, pr
     tool_agent_map = {
         "create_file": "coder",
         "modify_file": "coder",
+        "search_replace": "coder",
         "read_file": "reviewer",
+        "view_file": "reviewer",
+        "view_bulk": "reviewer",
+        "glob_files": "reviewer",
+        "lint_javascript": "reviewer",
+        "lint_python": "reviewer",
+        "screenshot": "tester",
         "delete_file": "coder",
+        "list_files": "coder",
         "create_roadmap": "planner",
         "update_roadmap_status": "planner",
         "web_search": "planner",
         "test_code": "tester",
         "verify_game": "tester",
+        "browser_test": "tester",
+        "advanced_test": "tester",
         "debug_error": "debugger",
+        "troubleshoot": "debugger",
         "run_command": "tester",
         "build_app": "coder",
+        "setup_docker_service": "coder",
+        "install_package": "coder",
+        "get_integration_playbook": "planner",
+        "get_design_guidelines": "planner",
+        "think": "orchestrator",
+        "code_review": "reviewer",
+        "update_memory": "orchestrator",
+        "git_commit": "git",
         "mark_complete": "orchestrator",
         "ask_user": "orchestrator"
     }
@@ -1222,6 +1254,10 @@ async def execute_tool(tool_name: str, arguments: dict, workspace_path: Path, pr
             file_path = workspace_path / arguments["path"]
             if file_path.exists():
                 file_path.unlink()
+                await add_log(project_id, "success", f"Datei gelöscht: {arguments['path']}", "coder")
+                result["output"] = f"✓ Datei gelöscht: {arguments['path']}"
+            else:
+                result["output"] = f"✗ Datei nicht gefunden: {arguments['path']}"
         
         elif tool_name == "lint_javascript":
             path = arguments["path"]
@@ -1294,6 +1330,8 @@ async def execute_tool(tool_name: str, arguments: dict, workspace_path: Path, pr
             await add_log(project_id, "info", "📸 Taking screenshot", "tester")
             
             # Create simple Playwright script
+            # Use correct backend preview URL
+            default_preview_url = f"http://localhost:8001/api/projects/{project_id}/preview/index.html"
             screenshot_script = f"""
 import asyncio
 from playwright.async_api import async_playwright
@@ -1304,7 +1342,7 @@ async def take_screenshot():
         page = await browser.new_page()
         
         try:
-            preview_url = "{url}" or "http://localhost:3000/preview/{project_id}"
+            preview_url = "{url}" or "{default_preview_url}"
             await page.goto(preview_url, wait_until="networkidle", timeout=15000)
             await page.wait_for_timeout(2000)
             
@@ -1315,7 +1353,13 @@ async def take_screenshot():
         finally:
             await browser.close()
 
-asyncio.run(take_screenshot())
+try:
+    asyncio.run(take_screenshot())
+except RuntimeError:
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(take_screenshot())
+    loop.close()
 """
             
             script_path = workspace_path / ".screenshot.py"
@@ -1326,17 +1370,21 @@ asyncio.run(take_screenshot())
                 env = os.environ.copy()
                 env['PATH'] = '/usr/bin:/usr/local/bin:/bin:' + env.get('PATH', '')
                 
-                proc = subprocess.run(
-                    [sys.executable, str(script_path)],
-                    capture_output=True,
-                    text=True,
-                    timeout=30,
+                proc = await asyncio.create_subprocess_exec(
+                    sys.executable, str(script_path),
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
                     env=env,
                     cwd=workspace_path
                 )
+                stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
+                stdout_text = stdout.decode() if stdout else ""
+                stderr_text = stderr.decode() if stderr else ""
                 
-                result["output"] = f"📸 Screenshot:\n{proc.stdout}\n{proc.stderr}"
-                await add_log(project_id, "success" if "✅" in proc.stdout else "error", "Screenshot genommen", "tester")
+                result["output"] = f"📸 Screenshot:\n{stdout_text}\n{stderr_text}"
+                await add_log(project_id, "success" if "✅" in stdout_text else "error", "Screenshot genommen", "tester")
+            except asyncio.TimeoutError:
+                result["output"] = "❌ Screenshot timeout (>30s)"
             except Exception as e:
                 result["output"] = f"❌ Screenshot error: {str(e)}"
             
@@ -1392,24 +1440,60 @@ BEISPIELE:
                     await update_agent(project_id, "coder", "idle", "Blocked forbidden command")
                     return result
             
-            safe_commands = ['npm', 'yarn', 'pip', 'python', 'node', 'cat', 'ls', 'mkdir', 'echo', 'cd']
-            if not any(command.startswith(safe) for safe in safe_commands):
-                result["output"] = f"✗ Befehl nicht erlaubt: {command}"
+            # Allow most common development commands
+            safe_commands = [
+                'npm', 'yarn', 'pip', 'python', 'python3', 'node', 
+                'cat', 'ls', 'mkdir', 'echo', 'cd', 'cp', 'mv', 'rm',
+                'touch', 'chmod', 'chown', 'find', 'grep', 'head', 'tail',
+                'sleep', 'wait', 'curl', 'wget',
+                'git', 'docker', 'docker-compose',
+                'tar', 'unzip', 'zip',
+                'sed', 'awk', 'sort', 'wc', 'diff',
+                'which', 'whereis', 'env', 'export', 'set',
+                'pwd', 'tree', 'du', 'df',
+                'kill', 'ps', 'top',
+                'tee', 'xargs',
+                'playwright', 'npx', 'pnpm',
+            ]
+            # Also allow commands that start with ./ or have paths
+            is_safe = (
+                any(command.strip().startswith(safe) for safe in safe_commands) or
+                command.strip().startswith('./') or
+                command.strip().startswith('/')
+            )
+            
+            # Block truly dangerous commands
+            dangerous_patterns = ['rm -rf /', 'mkfs', 'dd if=', ':(){', 'fork bomb', '> /dev/sd']
+            is_dangerous = any(pattern in command for pattern in dangerous_patterns)
+            
+            if is_dangerous:
+                result["output"] = f"✗ Gefährlicher Befehl blockiert: {command}"
+            elif not is_safe:
+                result["output"] = f"✗ Befehl nicht erlaubt: {command}\n\nErlaubte Befehle: npm, yarn, pip, python, node, git, docker, curl, sleep, cp, mv, rm, find, grep, etc."
             else:
                 await add_log(project_id, "info", f"Befehl: {command}", "tester")
                 try:
                     # Ensure PATH includes /usr/bin where node is located
                     env = os.environ.copy()
                     env['PATH'] = '/usr/bin:/usr/local/bin:' + env.get('PATH', '')
-                    proc = subprocess.run(command, shell=True, cwd=workspace_path, capture_output=True, text=True, timeout=60, env=env)
-                    output = proc.stdout + proc.stderr
+                    proc = await asyncio.create_subprocess_shell(
+                        command,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE,
+                        cwd=workspace_path,
+                        env=env
+                    )
+                    stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
+                    stdout_text = stdout.decode() if stdout else ""
+                    stderr_text = stderr.decode() if stderr else ""
+                    output = stdout_text + stderr_text
                     if proc.returncode == 0:
                         await add_log(project_id, "success", f"Befehl erfolgreich: {command}", "tester")
                         result["output"] = f"✓ {command}\n{output[:1000]}"
                     else:
                         await add_log(project_id, "error", f"Befehl fehlgeschlagen: {command}", "tester")
                         result["output"] = f"✗ {command}\nFehler: {output[:1000]}"
-                except subprocess.TimeoutExpired:
+                except asyncio.TimeoutError:
                     result["output"] = f"✗ Timeout: {command}"
         
         
@@ -1764,6 +1848,9 @@ Preview ist jetzt verfügbar!
             await update_agent(project_id, "tester", "running", "🌐 Browser-Test läuft...")
             await add_log(project_id, "info", f"🌐 Browser-Test startet: {len(test_scenarios)} Szenarien", "tester")
             
+            # Use correct backend preview URL
+            default_preview_url = f"http://localhost:8001/api/projects/{project_id}/preview/index.html"
+            
             # Create test script
             test_script = f"""
 import asyncio
@@ -1788,7 +1875,7 @@ async def run_browser_test():
         
         try:
             # Navigate to preview
-            preview_url = "{preview_url}" or "http://localhost:3000/preview/{project_id}"
+            preview_url = "{preview_url}" or "{default_preview_url}"
             await page.goto(preview_url, wait_until="networkidle", timeout=15000)
             await page.wait_for_timeout(2000)
             
@@ -1926,7 +2013,13 @@ async def run_browser_test():
     print("BROWSER_TEST_RESULTS_END")
 
 if __name__ == "__main__":
-    asyncio.run(run_browser_test())
+    try:
+        asyncio.run(run_browser_test())
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(run_browser_test())
+        loop.close()
 """
             
             # Write test script
@@ -1941,18 +2034,18 @@ if __name__ == "__main__":
                 # Use the same Python environment
                 python_bin = sys.executable
                 
-                proc = subprocess.run(
-                    [python_bin, str(test_script_path)],
-                    capture_output=True,
-                    text=True,
-                    timeout=60,
+                proc = await asyncio.create_subprocess_exec(
+                    python_bin, str(test_script_path),
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
                     env=env,
                     cwd=workspace_path
                 )
+                stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=60)
+                output = stdout.decode() if stdout else ""
+                error_output = stderr.decode() if stderr else ""
                 
                 # Parse results
-                output = proc.stdout
-                
                 if "BROWSER_TEST_RESULTS_START" in output:
                     results_str = output.split("BROWSER_TEST_RESULTS_START")[1].split("BROWSER_TEST_RESULTS_END")[0].strip()
                     test_results = json.loads(results_str)
@@ -1979,10 +2072,10 @@ if __name__ == "__main__":
                     if failed_count > 0:
                         result["continue"] = True
                 else:
-                    result["output"] = f"⚠️ Browser-Test konnte nicht ausgewertet werden\n\nOutput:\n{output[:500]}\n\nError:\n{proc.stderr[:500]}"
+                    result["output"] = f"⚠️ Browser-Test konnte nicht ausgewertet werden\n\nOutput:\n{output[:2000]}\n\nError:\n{error_output[:2000]}"
                     await add_log(project_id, "warning", "Browser-Test: Auswertung fehlgeschlagen", "tester")
                 
-            except subprocess.TimeoutExpired:
+            except asyncio.TimeoutError:
                 result["output"] = "❌ Browser-Test Timeout (>60s)"
                 await add_log(project_id, "error", "Browser-Test: Timeout", "tester")
             except Exception as e:

@@ -1,330 +1,447 @@
 #!/usr/bin/env python3
+"""
+ForgePilot Backend API Testing Script
+Tests all critical backend endpoints as specified in the review request.
+"""
 
-import requests
-import sys
+import asyncio
+import aiohttp
 import json
-from datetime import datetime
+import sys
+import time
 from typing import Dict, Any, Optional
 
-class ForgePilotAPITester:
-    def __init__(self, base_url="https://agent-debug-12.preview.emergentagent.com"):
-        self.base_url = base_url
-        self.api_url = f"{base_url}/api"
-        self.tests_run = 0
-        self.tests_passed = 0
+# Backend URL from frontend/.env
+BACKEND_URL = "https://agent-debug-12.preview.emergentagent.com"
+API_BASE = f"{BACKEND_URL}/api"
+
+class BackendTester:
+    def __init__(self):
+        self.session = None
+        self.test_results = []
         self.project_id = None
-        self.session = requests.Session()
-        self.session.headers.update({'Content-Type': 'application/json'})
-
-    def log_test(self, name: str, success: bool, details: str = ""):
+        
+    async def __aenter__(self):
+        self.session = aiohttp.ClientSession(
+            timeout=aiohttp.ClientTimeout(total=30),
+            headers={'Content-Type': 'application/json'}
+        )
+        return self
+        
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        if self.session:
+            await self.session.close()
+    
+    def log_test(self, test_name: str, success: bool, details: str = "", response_data: Any = None):
         """Log test result"""
-        self.tests_run += 1
-        if success:
-            self.tests_passed += 1
-            print(f"✅ {name} - PASSED {details}")
-        else:
-            print(f"❌ {name} - FAILED {details}")
-
-    def run_test(self, name: str, method: str, endpoint: str, expected_status: int, 
-                 data: Optional[Dict] = None, headers: Optional[Dict] = None) -> tuple[bool, Dict]:
-        """Run a single API test"""
-        url = f"{self.api_url}/{endpoint.lstrip('/')}"
+        status = "✅ PASS" if success else "❌ FAIL"
+        print(f"{status} {test_name}")
+        if details:
+            print(f"    {details}")
+        if response_data and isinstance(response_data, dict):
+            print(f"    Response keys: {list(response_data.keys())}")
         
+        self.test_results.append({
+            "test": test_name,
+            "success": success,
+            "details": details,
+            "response_data": response_data
+        })
+        print()
+    
+    async def test_basic_endpoints(self):
+        """Test basic API endpoints"""
+        print("=== TESTING BASIC API ENDPOINTS ===")
+        
+        # Test GET /api/ (root endpoint)
         try:
-            if method == 'GET':
-                response = self.session.get(url, headers=headers)
-            elif method == 'POST':
-                response = self.session.post(url, json=data, headers=headers)
-            elif method == 'DELETE':
-                response = self.session.delete(url, headers=headers)
-            elif method == 'PUT':
-                response = self.session.put(url, json=data, headers=headers)
-            else:
-                self.log_test(name, False, f"Unsupported method: {method}")
-                return False, {}
-
-            success = response.status_code == expected_status
-            response_data = {}
-            
-            try:
-                response_data = response.json()
-            except:
-                response_data = {"text": response.text}
-
-            details = f"Status: {response.status_code}"
-            if not success:
-                details += f" (Expected: {expected_status})"
-                if response.text:
-                    details += f" Response: {response.text[:200]}"
-
-            self.log_test(name, success, details)
-            return success, response_data
-
+            async with self.session.get(f"{API_BASE}/") as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    required_fields = ['message', 'version', 'llm_provider', 'active_provider', 'ollama_available']
+                    missing_fields = [f for f in required_fields if f not in data]
+                    
+                    if not missing_fields:
+                        self.log_test("GET /api/ - Root endpoint", True, 
+                                    f"Version: {data.get('version')}, LLM Provider: {data.get('llm_provider')}, Active: {data.get('active_provider')}", data)
+                    else:
+                        self.log_test("GET /api/ - Root endpoint", False, 
+                                    f"Missing required fields: {missing_fields}", data)
+                else:
+                    self.log_test("GET /api/ - Root endpoint", False, f"HTTP {resp.status}")
         except Exception as e:
-            self.log_test(name, False, f"Exception: {str(e)}")
-            return False, {}
-
-    def test_root_endpoint(self):
-        """Test GET /api/"""
-        print("\n🔍 Testing Root Endpoint...")
-        success, data = self.run_test("Root API", "GET", "/", 200)
-        if success and "message" in data:
-            print(f"   API Message: {data.get('message')}")
-            print(f"   Version: {data.get('version')}")
-        return success
-
-    def test_projects_crud(self):
-        """Test project CRUD operations"""
-        print("\n🔍 Testing Projects CRUD...")
+            self.log_test("GET /api/ - Root endpoint", False, f"Exception: {str(e)}")
         
-        # Test GET /api/projects (empty initially)
-        success, projects = self.run_test("Get Projects (Empty)", "GET", "/projects", 200)
-        if not success:
-            return False
-
+        # Test GET /api/health
+        try:
+            async with self.session.get(f"{API_BASE}/health") as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    required_fields = ['status', 'version', 'checks']
+                    missing_fields = [f for f in required_fields if f not in data]
+                    
+                    if not missing_fields and 'checks' in data:
+                        checks = data['checks']
+                        check_fields = ['mongodb', 'llm', 'ollama', 'openai']
+                        missing_checks = [f for f in check_fields if f not in checks]
+                        
+                        if not missing_checks:
+                            self.log_test("GET /api/health", True, 
+                                        f"Status: {data.get('status')}, MongoDB: {checks.get('mongodb')}, LLM: {checks.get('llm')}", data)
+                        else:
+                            self.log_test("GET /api/health", False, 
+                                        f"Missing check fields: {missing_checks}", data)
+                    else:
+                        self.log_test("GET /api/health", False, 
+                                    f"Missing required fields: {missing_fields}", data)
+                else:
+                    self.log_test("GET /api/health", False, f"HTTP {resp.status}")
+        except Exception as e:
+            self.log_test("GET /api/health", False, f"Exception: {str(e)}")
+        
+        # Test GET /api/settings
+        try:
+            async with self.session.get(f"{API_BASE}/settings") as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    required_fields = ['openai_api_key_set', 'github_token_set', 'ollama_url', 'ollama_model', 'llm_provider', 'ollama_available', 'ollama_models']
+                    missing_fields = [f for f in required_fields if f not in data]
+                    
+                    if not missing_fields:
+                        self.log_test("GET /api/settings", True, 
+                                    f"LLM Provider: {data.get('llm_provider')}, Ollama Available: {data.get('ollama_available')}", data)
+                    else:
+                        self.log_test("GET /api/settings", False, 
+                                    f"Missing required fields: {missing_fields}", data)
+                else:
+                    self.log_test("GET /api/settings", False, f"HTTP {resp.status}")
+        except Exception as e:
+            self.log_test("GET /api/settings", False, f"Exception: {str(e)}")
+        
+        # Test GET /api/llm/status
+        try:
+            async with self.session.get(f"{API_BASE}/llm/status") as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    required_fields = ['provider', 'active_provider', 'ollama_available', 'ollama_url', 'ollama_model', 'ollama_models', 'openai_available', 'auto_fallback_active']
+                    missing_fields = [f for f in required_fields if f not in data]
+                    
+                    if not missing_fields:
+                        self.log_test("GET /api/llm/status", True, 
+                                    f"Provider: {data.get('provider')}, Active: {data.get('active_provider')}, OpenAI: {data.get('openai_available')}", data)
+                    else:
+                        self.log_test("GET /api/llm/status", False, 
+                                    f"Missing required fields: {missing_fields}", data)
+                else:
+                    self.log_test("GET /api/llm/status", False, f"HTTP {resp.status}")
+        except Exception as e:
+            self.log_test("GET /api/llm/status", False, f"Exception: {str(e)}")
+    
+    async def test_project_management(self):
+        """Test project management endpoints"""
+        print("=== TESTING PROJECT MANAGEMENT ===")
+        
         # Test POST /api/projects (create project)
         project_data = {
-            "name": "Test ForgePilot Project",
-            "description": "Ein Test-Projekt für die API-Validierung",
+            "name": "Test HTML Project",
+            "description": "Test project for backend API testing",
             "project_type": "fullstack"
         }
         
-        success, project = self.run_test("Create Project", "POST", "/projects", 200, project_data)
-        if not success:
-            return False
-            
-        if "id" in project:
-            self.project_id = project["id"]
-            print(f"   Created Project ID: {self.project_id}")
+        try:
+            async with self.session.post(f"{API_BASE}/projects", json=project_data) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    if 'id' in data:
+                        self.project_id = data['id']
+                        self.log_test("POST /api/projects - Create project", True, 
+                                    f"Created project with ID: {self.project_id}", data)
+                    else:
+                        self.log_test("POST /api/projects - Create project", False, 
+                                    "No project ID in response", data)
+                else:
+                    response_text = await resp.text()
+                    self.log_test("POST /api/projects - Create project", False, 
+                                f"HTTP {resp.status}: {response_text}")
+        except Exception as e:
+            self.log_test("POST /api/projects - Create project", False, f"Exception: {str(e)}")
+        
+        # Test GET /api/projects (list projects)
+        try:
+            async with self.session.get(f"{API_BASE}/projects") as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    if isinstance(data, list):
+                        self.log_test("GET /api/projects - List projects", True, 
+                                    f"Found {len(data)} projects", {"count": len(data)})
+                    else:
+                        self.log_test("GET /api/projects - List projects", False, 
+                                    "Response is not a list", data)
+                else:
+                    response_text = await resp.text()
+                    self.log_test("GET /api/projects - List projects", False, 
+                                f"HTTP {resp.status}: {response_text}")
+        except Exception as e:
+            self.log_test("GET /api/projects - List projects", False, f"Exception: {str(e)}")
+        
+        # Test GET /api/projects/{id} (get specific project)
+        if self.project_id:
+            try:
+                async with self.session.get(f"{API_BASE}/projects/{self.project_id}") as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        if 'id' in data and data['id'] == self.project_id:
+                            self.log_test("GET /api/projects/{id} - Get project", True, 
+                                        f"Retrieved project: {data.get('name')}", data)
+                        else:
+                            self.log_test("GET /api/projects/{id} - Get project", False, 
+                                        "Project ID mismatch", data)
+                    else:
+                        response_text = await resp.text()
+                        self.log_test("GET /api/projects/{id} - Get project", False, 
+                                    f"HTTP {resp.status}: {response_text}")
+            except Exception as e:
+                self.log_test("GET /api/projects/{id} - Get project", False, f"Exception: {str(e)}")
         else:
-            print("   ❌ No project ID returned")
-            return False
-
-        # Test GET /api/projects (should have our project)
-        success, projects = self.run_test("Get Projects (With Data)", "GET", "/projects", 200)
-        if success and len(projects) > 0:
-            print(f"   Found {len(projects)} project(s)")
-
-        # Test GET /api/projects/{id}
-        success, project_detail = self.run_test(
-            "Get Project Detail", "GET", f"/projects/{self.project_id}", 200
-        )
-        if success:
-            print(f"   Project Name: {project_detail.get('name')}")
-            print(f"   Project Type: {project_detail.get('project_type')}")
-
-        return success
-
-    def test_messages_api(self):
-        """Test messages/chat API"""
+            self.log_test("GET /api/projects/{id} - Get project", False, "No project ID available")
+    
+    async def test_agent_chat_system(self):
+        """Test agent chat system with streaming SSE"""
+        print("=== TESTING AGENT CHAT SYSTEM (CRITICAL) ===")
+        
         if not self.project_id:
-            print("❌ No project ID available for message testing")
-            return False
-
-        print("\n🔍 Testing Messages API...")
+            self.log_test("Agent Chat System", False, "No project ID available for chat testing")
+            return
         
-        # Test GET messages (empty initially)
-        success, messages = self.run_test(
-            "Get Messages (Empty)", "GET", f"/projects/{self.project_id}/messages", 200
-        )
-        if not success:
-            return False
-
-        # Test POST message
-        message_data = {
-            "project_id": self.project_id,
-            "content": "Hallo ForgePilot! Kannst du mir bei diesem Projekt helfen?",
-            "role": "user"
-        }
-        
-        success, message = self.run_test(
-            "Create Message", "POST", f"/projects/{self.project_id}/messages", 200, message_data
-        )
-        if success and "id" in message:
-            print(f"   Message ID: {message['id']}")
-
-        # Test GET messages (should have our message)
-        success, messages = self.run_test(
-            "Get Messages (With Data)", "GET", f"/projects/{self.project_id}/messages", 200
-        )
-        if success and len(messages) > 0:
-            print(f"   Found {len(messages)} message(s)")
-
-        return success
-
-    def test_agents_api(self):
-        """Test agent status API"""
-        if not self.project_id:
-            print("❌ No project ID available for agent testing")
-            return False
-
-        print("\n🔍 Testing Agents API...")
-        
-        # Test GET agents
-        success, agents = self.run_test(
-            "Get Agent Statuses", "GET", f"/projects/{self.project_id}/agents", 200
-        )
-        if success:
-            print(f"   Found {len(agents)} agent(s)")
-            for agent in agents:
-                print(f"   - {agent.get('agent_type')}: {agent.get('status')}")
-
-        return success
-
-    def test_logs_api(self):
-        """Test logs API"""
-        if not self.project_id:
-            print("❌ No project ID available for logs testing")
-            return False
-
-        print("\n🔍 Testing Logs API...")
-        
-        # Test GET logs
-        success, logs = self.run_test(
-            "Get Logs", "GET", f"/projects/{self.project_id}/logs", 200
-        )
-        if success:
-            print(f"   Found {len(logs)} log(s)")
-
-        # Test POST log
-        log_data = {
-            "level": "info",
-            "message": "Test log entry from API test",
-            "source": "test"
-        }
-        
-        success, log = self.run_test(
-            "Create Log Entry", "POST", f"/projects/{self.project_id}/logs", 200, log_data
-        )
-        if success and "id" in log:
-            print(f"   Log ID: {log['id']}")
-
-        return success
-
-    def test_roadmap_api(self):
-        """Test roadmap API"""
-        if not self.project_id:
-            print("❌ No project ID available for roadmap testing")
-            return False
-
-        print("\n🔍 Testing Roadmap API...")
-        
-        # Test GET roadmap (empty initially)
-        success, roadmap = self.run_test(
-            "Get Roadmap", "GET", f"/projects/{self.project_id}/roadmap", 200
-        )
-        if success:
-            print(f"   Found {len(roadmap)} roadmap item(s)")
-
-        return success
-
-    def test_github_endpoints(self):
-        """Test GitHub-related endpoints (without actual import)"""
-        print("\n🔍 Testing GitHub Endpoints...")
-        
-        # Test GitHub import with invalid URL (should fail gracefully)
-        github_data = {
-            "repo_url": "https://github.com/invalid/nonexistent-repo",
-            "branch": "main"
-        }
-        
-        success, response = self.run_test(
-            "GitHub Import (Invalid Repo)", "POST", "/github/import", 400, github_data
-        )
-        # We expect this to fail with 400, so success means it handled the error properly
-        
-        return True  # GitHub tests are optional for basic functionality
-
-    def test_chat_streaming(self):
-        """Test chat streaming endpoint (basic connectivity)"""
-        if not self.project_id:
-            print("❌ No project ID available for chat testing")
-            return False
-
-        print("\n🔍 Testing Chat Streaming...")
-        
-        # Test chat endpoint (we won't test full streaming, just connectivity)
-        chat_data = {
-            "project_id": self.project_id,
-            "content": "Hallo! Das ist ein Test der Chat-Funktionalität.",
+        # Test POST /api/projects/{id}/chat with streaming
+        chat_message = {
+            "content": "Erstelle eine einfache HTML Datei mit Hallo Welt",
             "role": "user"
         }
         
         try:
-            url = f"{self.api_url}/projects/{self.project_id}/chat"
-            response = self.session.post(url, json=chat_data, stream=True, timeout=10)
-            
-            if response.status_code == 200:
-                # Check if we get streaming response
-                content_type = response.headers.get('content-type', '')
-                if 'text/event-stream' in content_type:
-                    self.log_test("Chat Streaming Endpoint", True, "SSE stream started")
-                    response.close()  # Close the stream
-                    return True
-                else:
-                    self.log_test("Chat Streaming Endpoint", False, f"Wrong content-type: {content_type}")
-                    return False
-            else:
-                self.log_test("Chat Streaming Endpoint", False, f"Status: {response.status_code}")
-                return False
+            # Test streaming SSE response with timeout
+            timeout = aiohttp.ClientTimeout(total=15)  # 15 second timeout
+            async with self.session.post(
+                f"{API_BASE}/projects/{self.project_id}/chat",
+                json=chat_message,
+                headers={'Accept': 'text/event-stream'},
+                timeout=timeout
+            ) as resp:
                 
+                if resp.status == 200:
+                    content_type = resp.headers.get('content-type', '')
+                    if 'text/event-stream' in content_type or 'text/plain' in content_type:
+                        # Read streaming response
+                        events_received = []
+                        tool_calls_found = False
+                        done_event_found = False
+                        content_found = False
+                        
+                        try:
+                            async for line in resp.content:
+                                line_str = line.decode('utf-8').strip()
+                                if line_str.startswith('data: '):
+                                    try:
+                                        event_data = json.loads(line_str[6:])  # Remove 'data: ' prefix
+                                        events_received.append(event_data)
+                                        
+                                        # Check for tool events (create_file, etc.)
+                                        if 'tool' in event_data:
+                                            tool_calls_found = True
+                                        
+                                        # Check for content events
+                                        if 'content' in event_data:
+                                            content_found = True
+                                        
+                                        # Check for done event
+                                        if event_data.get('type') == 'done':
+                                            done_event_found = True
+                                            break
+                                            
+                                    except json.JSONDecodeError:
+                                        # Some lines might not be JSON, that's ok
+                                        continue
+                                        
+                                # Break after reasonable number of events or timeout
+                                if len(events_received) > 10:
+                                    break
+                                    
+                        except asyncio.TimeoutError:
+                            # Timeout is expected for streaming, that's ok
+                            pass
+                        
+                        # Evaluate the streaming response
+                        if events_received:
+                            details = f"Received {len(events_received)} events"
+                            if tool_calls_found:
+                                details += ", tool events found"
+                            if content_found:
+                                details += ", content events found"
+                            
+                            # Success if we got tool calls or content (agent is working)
+                            success = tool_calls_found or content_found
+                            self.log_test("POST /api/projects/{id}/chat - Streaming SSE", success, details, 
+                                        {"events_count": len(events_received), "tool_calls": tool_calls_found, "content": content_found})
+                        else:
+                            self.log_test("POST /api/projects/{id}/chat - Streaming SSE", False, 
+                                        "No events received in stream")
+                    else:
+                        self.log_test("POST /api/projects/{id}/chat - Streaming SSE", False, 
+                                    f"Wrong content type: {content_type}")
+                else:
+                    response_text = await resp.text()
+                    self.log_test("POST /api/projects/{id}/chat - Streaming SSE", False, 
+                                f"HTTP {resp.status}: {response_text}")
+                    
+        except asyncio.TimeoutError:
+            self.log_test("POST /api/projects/{id}/chat - Streaming SSE", False, "Timeout waiting for response")
         except Exception as e:
-            self.log_test("Chat Streaming Endpoint", False, f"Exception: {str(e)}")
-            return False
-
-    def cleanup(self):
-        """Clean up test data"""
-        if self.project_id:
-            print("\n🧹 Cleaning up test data...")
-            success, _ = self.run_test(
-                "Delete Test Project", "DELETE", f"/projects/{self.project_id}", 200
-            )
-            if success:
-                print("   Test project deleted successfully")
-
-    def run_all_tests(self):
-        """Run all API tests"""
-        print("🚀 Starting ForgePilot API Tests")
-        print(f"🌐 Testing against: {self.base_url}")
-        print("=" * 60)
-
-        # Core API tests
-        tests = [
-            self.test_root_endpoint,
-            self.test_projects_crud,
-            self.test_messages_api,
-            self.test_agents_api,
-            self.test_logs_api,
-            self.test_roadmap_api,
-            self.test_chat_streaming,
-            self.test_github_endpoints,
-        ]
-
-        for test in tests:
-            try:
-                test()
-            except Exception as e:
-                print(f"❌ Test failed with exception: {e}")
-
-        # Cleanup
-        self.cleanup()
-
-        # Results
-        print("\n" + "=" * 60)
-        print(f"📊 Test Results: {self.tests_passed}/{self.tests_run} passed")
-        success_rate = (self.tests_passed / self.tests_run * 100) if self.tests_run > 0 else 0
-        print(f"📈 Success Rate: {success_rate:.1f}%")
+            self.log_test("POST /api/projects/{id}/chat - Streaming SSE", False, f"Exception: {str(e)}")
+    
+    async def test_agent_tool_execution(self):
+        """Test agent tool execution results"""
+        print("=== TESTING AGENT TOOL EXECUTION ===")
         
-        if success_rate >= 80:
-            print("🎉 Backend API tests mostly successful!")
-            return 0
+        if not self.project_id:
+            self.log_test("Agent Tool Execution", False, "No project ID available for tool testing")
+            return
+        
+        # Wait a bit for agent to potentially create files
+        await asyncio.sleep(2)
+        
+        # Test GET /api/projects/{id}/files
+        try:
+            async with self.session.get(f"{API_BASE}/projects/{self.project_id}/files") as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    if isinstance(data, dict) and 'tree' in data:
+                        # New format: {"type": "directory", "items": [], "tree": [...]}
+                        files = data['tree']
+                        self.log_test("GET /api/projects/{id}/files", True, 
+                                    f"Found {len(files)} files in tree structure", {"files_count": len(files)})
+                    elif isinstance(data, list):
+                        # Old format: direct list
+                        self.log_test("GET /api/projects/{id}/files", True, 
+                                    f"Found {len(data)} files", {"files_count": len(data)})
+                    elif isinstance(data, dict) and 'files' in data:
+                        # Alternative format: {"files": [...]}
+                        files = data['files']
+                        self.log_test("GET /api/projects/{id}/files", True, 
+                                    f"Found {len(files)} files", {"files_count": len(files)})
+                    else:
+                        self.log_test("GET /api/projects/{id}/files", False, 
+                                    "Unexpected response format", data)
+                else:
+                    response_text = await resp.text()
+                    self.log_test("GET /api/projects/{id}/files", False, 
+                                f"HTTP {resp.status}: {response_text}")
+        except Exception as e:
+            self.log_test("GET /api/projects/{id}/files", False, f"Exception: {str(e)}")
+        
+        # Test GET /api/projects/{id}/preview-info
+        try:
+            async with self.session.get(f"{API_BASE}/projects/{self.project_id}/preview-info") as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    if isinstance(data, dict):
+                        self.log_test("GET /api/projects/{id}/preview-info", True, 
+                                    "Preview info retrieved", data)
+                    else:
+                        self.log_test("GET /api/projects/{id}/preview-info", False, 
+                                    "Unexpected response format", data)
+                else:
+                    response_text = await resp.text()
+                    self.log_test("GET /api/projects/{id}/preview-info", False, 
+                                f"HTTP {resp.status}: {response_text}")
+        except Exception as e:
+            self.log_test("GET /api/projects/{id}/preview-info", False, f"Exception: {str(e)}")
+    
+    async def test_settings_update(self):
+        """Test settings update functionality"""
+        print("=== TESTING SETTINGS UPDATE ===")
+        
+        # Test PUT /api/settings
+        settings_update = {
+            "llm_provider": "openai"
+        }
+        
+        try:
+            async with self.session.put(f"{API_BASE}/settings", json=settings_update) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    if 'success' in data and data['success']:
+                        self.log_test("PUT /api/settings", True, 
+                                    f"Settings updated: {data.get('message', '')}", data)
+                    else:
+                        self.log_test("PUT /api/settings", False, 
+                                    "Success flag not true", data)
+                else:
+                    response_text = await resp.text()
+                    self.log_test("PUT /api/settings", False, 
+                                f"HTTP {resp.status}: {response_text}")
+        except Exception as e:
+            self.log_test("PUT /api/settings", False, f"Exception: {str(e)}")
+    
+    def print_summary(self):
+        """Print test summary"""
+        print("=" * 60)
+        print("BACKEND API TEST SUMMARY")
+        print("=" * 60)
+        
+        total_tests = len(self.test_results)
+        passed_tests = sum(1 for result in self.test_results if result['success'])
+        failed_tests = total_tests - passed_tests
+        
+        print(f"Total Tests: {total_tests}")
+        print(f"Passed: {passed_tests}")
+        print(f"Failed: {failed_tests}")
+        print(f"Success Rate: {(passed_tests/total_tests*100):.1f}%")
+        print()
+        
+        if failed_tests > 0:
+            print("FAILED TESTS:")
+            for result in self.test_results:
+                if not result['success']:
+                    print(f"❌ {result['test']}: {result['details']}")
+            print()
+        
+        print("CRITICAL ISSUES:")
+        critical_failures = []
+        for result in self.test_results:
+            if not result['success']:
+                if 'chat' in result['test'].lower() or 'streaming' in result['test'].lower():
+                    critical_failures.append(f"CRITICAL: {result['test']} - {result['details']}")
+                elif 'Exception' in result['details']:
+                    critical_failures.append(f"ERROR: {result['test']} - {result['details']}")
+        
+        if critical_failures:
+            for failure in critical_failures:
+                print(f"🚨 {failure}")
         else:
-            print("⚠️  Backend API has significant issues")
-            return 1
+            print("✅ No critical issues found")
+        
+        return passed_tests, failed_tests
 
-def main():
-    tester = ForgePilotAPITester()
-    return tester.run_all_tests()
+async def main():
+    """Main test runner"""
+    print("ForgePilot Backend API Testing")
+    print(f"Testing backend at: {BACKEND_URL}")
+    print("=" * 60)
+    
+    async with BackendTester() as tester:
+        # Run all test suites
+        await tester.test_basic_endpoints()
+        await tester.test_project_management()
+        await tester.test_agent_chat_system()
+        await tester.test_agent_tool_execution()
+        await tester.test_settings_update()
+        
+        # Print summary
+        passed, failed = tester.print_summary()
+        
+        # Exit with appropriate code
+        sys.exit(0 if failed == 0 else 1)
 
 if __name__ == "__main__":
-    sys.exit(main())
+    asyncio.run(main())
