@@ -2867,7 +2867,7 @@ SCHRITT 2: IMPLEMENTIERUNG (wie E1!)
 → EINFACH npm install AUSFÜHREN!
 
 📝 BEISPIEL - SO MACHST DU ES:
-✅ SCHRITT 1: create_file("package.json", {...})
+✅ SCHRITT 1: create_file("package.json", {{...}})
 ✅ SCHRITT 2: run_command("npm install")
 ✅ SCHRITT 3: Fertig!
 
@@ -2888,8 +2888,8 @@ SCHRITT 2: IMPLEMENTIERUNG (wie E1!)
 
 📝 SETUP WORKFLOW FÜR PROJEKTE:
 ├─ 1. Dateien erstellen
-│  ├─ create_file("package.json", {...}) für Node/React
-│  ├─ create_file("requirements.txt", {...}) für Python
+│  ├─ create_file("package.json", {{...}}) für Node/React
+│  ├─ create_file("requirements.txt", {{...}}) für Python
 │  └─ Alle nötigen Source-Dateien
 ├─ 2. Dependencies installieren  
 │  ├─ run_command("npm install")
@@ -2935,8 +2935,8 @@ SCHRITT 2: IMPLEMENTIERUNG (wie E1!)
 
 BEISPIEL 1: React Todo-App mit MongoDB
 ```
-1. create_file("package.json", {...react, express, mongoose...})
-2. create_file("src/App.js", {...})
+1. create_file("package.json", {{...react, express, mongoose...}})
+2. create_file("src/App.js", {{...}})
 3. run_command("npm install")
 4. setup_docker_service("mongodb", "todo-mongo", 27017)  ← PFLICHT!
 5. run_command("sleep 5")  ← Warte auf MongoDB!
@@ -2946,8 +2946,8 @@ BEISPIEL 1: React Todo-App mit MongoDB
 
 BEISPIEL 2: Express API mit PostgreSQL
 ```
-1. create_file("package.json", {...express, pg...})
-2. create_file("server.js", {...})
+1. create_file("package.json", {{...express, pg...}})
+2. create_file("server.js", {{...}})
 3. run_command("npm install")
 4. setup_docker_service("postgresql", "api-db", 5432)  ← PFLICHT!
 5. run_command("sleep 5")
@@ -2957,9 +2957,9 @@ BEISPIEL 2: Express API mit PostgreSQL
 
 BEISPIEL 3: Simple HTML-App (KEIN React)
 ```
-1. create_file("index.html", {...})
-2. create_file("style.css", {...})
-3. create_file("script.js", {...})
+1. create_file("index.html", {{...}})
+2. create_file("style.css", {{...}})
+3. create_file("script.js", {{...}})
 4. browser_test(["Click button", "Verify animation"])
 ```
 
