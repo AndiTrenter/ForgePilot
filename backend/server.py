@@ -1026,7 +1026,8 @@ AGENT_TOOLS = [
     {"type": "function", "function": {"name": "verify_game", "description": "Verify that a game is complete and playable. MUST be called before mark_complete for any game project.", "parameters": {"type": "object", "properties": {"game_type": {"type": "string", "description": "Type of game (e.g., tetris, snake, pong)"}}, "required": ["game_type"]}}},
     {"type": "function", "function": {"name": "debug_error", "description": "Analyze and fix an error", "parameters": {"type": "object", "properties": {"error_message": {"type": "string"}, "file_path": {"type": "string"}}, "required": ["error_message"]}}},
     {"type": "function", "function": {"name": "ask_user", "description": "Ask user ONLY when truly needed. DO NOT ask about technology choices (DB, framework) - choose the best yourself!", "parameters": {"type": "object", "properties": {"question": {"type": "string"}}, "required": ["question"]}}},
-    {"type": "function", "function": {"name": "mark_complete", "description": "Mark project as complete. MUST call browser_test BEFORE this!", "parameters": {"type": "object", "properties": {"summary": {"type": "string"}, "tested_features": {"type": "array", "items": {"type": "string"}}}, "required": ["summary", "tested_features"]}}}
+    {"type": "function", "function": {"name": "mark_complete", "description": "Mark project as complete. MUST call browser_test BEFORE this!", "parameters": {"type": "object", "properties": {"summary": {"type": "string"}, "tested_features": {"type": "array", "items": {"type": "string"}}}, "required": ["summary", "tested_features"]}}},
+    {"type": "function", "function": {"name": "clear_errors", "description": "Clear old error logs that have been resolved. Call this BEFORE mark_complete if there are old errors from earlier failed attempts that are now fixed.", "parameters": {"type": "object", "properties": {"reason": {"type": "string", "description": "Why the errors are resolved (e.g., 'Build now succeeds after fixing config')"}}, "required": ["reason"]}}}
 ]
 
 async def call_ollama(messages: list, model: str = None) -> str:
@@ -1150,6 +1151,7 @@ async def execute_tool(tool_name: str, arguments: dict, workspace_path: Path, pr
         "update_memory": "orchestrator",
         "git_commit": "git",
         "mark_complete": "orchestrator",
+        "clear_errors": "orchestrator",
         "ask_user": "orchestrator"
     }
     
@@ -1505,70 +1507,107 @@ BEISPIELE:
             await update_agent(project_id, "coder", "running", f"Building app...")
             
             try:
-                # Check if package.json exists
+                # SMART: Auto-detect project directory with package.json
+                build_dir = workspace_path
                 package_json = workspace_path / "package.json"
+                
                 if not package_json.exists():
-                    result["output"] = "❌ package.json not found. This is not a Node.js project."
-                    await add_log(project_id, "error", "Build failed: No package.json", "coder")
-                else:
-                    # Ensure node_modules exist
-                    if not (workspace_path / "node_modules").exists():
-                        await add_log(project_id, "info", "📦 Installing dependencies first...", "coder")
-                        install_proc = subprocess.run(
-                            "npm install",
-                            shell=True,
-                            cwd=workspace_path,
-                            capture_output=True,
-                            text=True,
-                            timeout=300,
-                            env={**os.environ, 'PATH': '/usr/bin:/usr/local/bin:' + os.environ.get('PATH', '')}
-                        )
-                        if install_proc.returncode != 0:
-                            result["output"] = f"❌ npm install failed:\n{install_proc.stderr[:500]}"
-                            await add_log(project_id, "error", "Dependency installation failed", "coder")
-                            return result
+                    # Search for package.json in subdirectories (1 level deep)
+                    found = False
+                    for subdir in workspace_path.iterdir():
+                        if subdir.is_dir() and (subdir / "package.json").exists():
+                            build_dir = subdir
+                            package_json = subdir / "package.json"
+                            found = True
+                            await add_log(project_id, "info", f"📂 Projekt gefunden in: {subdir.name}/", "coder")
+                            break
                     
-                    # Run build command
-                    env = os.environ.copy()
-                    env['PATH'] = '/usr/bin:/usr/local/bin:' + env.get('PATH', '')
-                    env['CI'] = 'false'  # Disable CI mode warnings
-                    
-                    proc = subprocess.run(
-                        build_command,
+                    if not found:
+                        result["output"] = "❌ package.json nicht gefunden - weder im Root noch in Unterordnern."
+                        await add_log(project_id, "error", "Build failed: No package.json", "coder")
+                        await update_agent(project_id, "coder", "idle", "No package.json")
+                        return result
+                
+                # Verify build script exists in package.json
+                try:
+                    import json as json_mod
+                    with open(package_json) as f:
+                        pkg = json_mod.load(f)
+                    scripts = pkg.get("scripts", {})
+                    if "build" not in scripts and build_command == "npm run build":
+                        # Try to add a sensible build script
+                        if "vite" in str(pkg.get("devDependencies", {})) or "vite" in str(pkg.get("dependencies", {})):
+                            scripts["build"] = "vite build"
+                        elif "react-scripts" in str(pkg.get("dependencies", {})):
+                            scripts["build"] = "react-scripts build"
+                        
+                        if "build" in scripts:
+                            pkg["scripts"] = scripts
+                            with open(package_json, 'w') as f:
+                                json_mod.dump(pkg, f, indent=2)
+                            await add_log(project_id, "info", f"📝 Build-Script automatisch hinzugefügt: {scripts['build']}", "coder")
+                except Exception:
+                    pass
+                
+                # Ensure node_modules exist
+                if not (build_dir / "node_modules").exists():
+                    await add_log(project_id, "info", "📦 Installing dependencies first...", "coder")
+                    install_proc = subprocess.run(
+                        "npm install",
                         shell=True,
-                        cwd=workspace_path,
+                        cwd=build_dir,
                         capture_output=True,
                         text=True,
                         timeout=300,
-                        env=env
+                        env={**os.environ, 'PATH': '/usr/bin:/usr/local/bin:' + os.environ.get('PATH', '')}
                     )
+                    if install_proc.returncode != 0:
+                        result["output"] = f"❌ npm install failed:\n{install_proc.stderr[:500]}"
+                        await add_log(project_id, "error", "Dependency installation failed", "coder")
+                        return result
+                
+                # Run build command in the correct directory
+                env = os.environ.copy()
+                env['PATH'] = '/usr/bin:/usr/local/bin:' + env.get('PATH', '')
+                env['CI'] = 'false'  # Disable CI mode warnings
                     
-                    output = proc.stdout + proc.stderr
+                proc = subprocess.run(
+                    build_command,
+                    shell=True,
+                    cwd=build_dir,
+                    capture_output=True,
+                    text=True,
+                    timeout=300,
+                    env=env
+                )
+                
+                output = proc.stdout + proc.stderr
+                
+                if proc.returncode == 0:
+                    # Check if build output exists
+                    build_output_dirs = ["build", "dist", ".next"]
+                    build_found = None
+                    for bd in build_output_dirs:
+                        if (build_dir / bd).exists():
+                            build_found = bd
+                            break
                     
-                    if proc.returncode == 0:
-                        # Check if build output exists
-                        build_dirs = ["build", "dist", ".next"]
-                        build_found = None
-                        for build_dir in build_dirs:
-                            if (workspace_path / build_dir).exists():
-                                build_found = build_dir
-                                break
-                        
-                        if build_found:
-                            await add_log(project_id, "success", f"✅ Build erfolgreich! Output: {build_found}/", "coder")
-                            result["output"] = f"""✅ Build erfolgreich!
+                    if build_found:
+                        await add_log(project_id, "success", f"✅ Build erfolgreich! Output: {build_found}/", "coder")
+                        result["output"] = f"""✅ Build erfolgreich!
 
 Build Output: {build_found}/
 Command: {build_command}
+Directory: {build_dir.name}/
 
 Preview ist jetzt verfügbar!
 
 {output[:500]}"""
-                        else:
-                            result["output"] = f"⚠️ Build completed but no build/ or dist/ directory found.\n{output[:500]}"
                     else:
-                        await add_log(project_id, "error", f"Build failed", "coder")
-                        result["output"] = f"❌ Build fehlgeschlagen:\n{output[:800]}"
+                        result["output"] = f"⚠️ Build completed but no build/ or dist/ directory found.\n{output[:500]}"
+                else:
+                    await add_log(project_id, "error", f"Build failed", "coder")
+                    result["output"] = f"❌ Build fehlgeschlagen:\n{output[:800]}"
                 
             except subprocess.TimeoutExpired:
                 result["output"] = "❌ Build timeout (>5 minutes). Check build configuration."
@@ -2236,24 +2275,40 @@ Dann kannst du die App starten!"""
                 env = os.environ.copy()
                 env['PATH'] = '/usr/bin:/usr/local/bin:/bin:' + env.get('PATH', '')
                 
+                # SMART: Auto-detect correct install directory
+                install_dir = workspace_path
+                
                 # Ensure package.json exists for npm/yarn
                 if package_manager in ["npm", "yarn"]:
                     package_json_path = workspace_path / "package.json"
                     if not package_json_path.exists():
-                        await add_log(project_id, "info", "Erstelle package.json...", "coder")
-                        default_package_json = {
-                            "name": "project",
-                            "version": "1.0.0",
-                            "description": "",
-                            "main": "index.js",
-                            "scripts": {
-                                "start": "node index.js"
-                            },
-                            "dependencies": {},
-                            "devDependencies": {}
-                        }
-                        async with aiofiles.open(package_json_path, 'w') as f:
-                            await f.write(json.dumps(default_package_json, indent=2))
+                        # Search for package.json in subdirectories (1 level deep)
+                        found_subdir = False
+                        for subdir in workspace_path.iterdir():
+                            if subdir.is_dir() and (subdir / "package.json").exists():
+                                install_dir = subdir
+                                package_json_path = subdir / "package.json"
+                                found_subdir = True
+                                await add_log(project_id, "info", f"📂 package.json gefunden in: {subdir.name}/", "coder")
+                                break
+                        
+                        if not found_subdir:
+                            await add_log(project_id, "info", "Erstelle package.json...", "coder")
+                            default_package_json = {
+                                "name": "project",
+                                "version": "1.0.0",
+                                "description": "",
+                                "main": "index.js",
+                                "scripts": {
+                                    "start": "node index.js"
+                                },
+                                "dependencies": {},
+                                "devDependencies": {}
+                            }
+                            async with aiofiles.open(package_json_path, 'w') as f:
+                                await f.write(json.dumps(default_package_json, indent=2))
+                    else:
+                        install_dir = workspace_path
                 
                 if package_manager == "npm":
                     cmd = f"npm install {package_name}"
@@ -2266,7 +2321,7 @@ Dann kannst du die App starten!"""
                 elif package_manager == "pip":
                     cmd = f"pip install {package_name}"
                 
-                proc = subprocess.run(cmd, shell=True, cwd=workspace_path, capture_output=True, text=True, timeout=120, env=env)
+                proc = subprocess.run(cmd, shell=True, cwd=install_dir, capture_output=True, text=True, timeout=120, env=env)
                 
                 if proc.returncode == 0:
                     result["output"] = f"✓ Paket installiert: {package_name}\n{proc.stdout[:500]}"
@@ -2748,6 +2803,18 @@ REVIEW:
                 await add_log(project_id, "error", f"Git error: {str(e)}", "git")
                 await update_agent(project_id, "git", "idle", "Error")
         
+        elif tool_name == "clear_errors":
+            reason = arguments.get("reason", "Errors resolved")
+            
+            # Count current errors
+            error_count = await db.logs.count_documents({"project_id": project_id, "level": "error"})
+            
+            # Delete all error logs for this project
+            delete_result = await db.logs.delete_many({"project_id": project_id, "level": "error"})
+            
+            await add_log(project_id, "success", f"🧹 {delete_result.deleted_count} Error-Logs gelöscht. Grund: {reason}", "orchestrator")
+            result["output"] = f"✅ {delete_result.deleted_count} Error-Logs gelöscht.\nGrund: {reason}\n\nDu kannst jetzt mark_complete erneut aufrufen."
+        
         elif tool_name == "mark_complete":
             summary = arguments["summary"]
             tested_features = arguments.get("tested_features", [])
@@ -2765,16 +2832,26 @@ REVIEW:
                     await add_log(project_id, "info", "🔒 Prüfe Completion Gates...", "orchestrator")
                     
                     # Gate 1: Teste auf fehlgeschlagene Tests in Logs
-                    recent_logs = await db.logs.find(
-                        {"project_id": project_id, "level": "error"}
-                    ).sort("timestamp", -1).limit(10).to_list(10)
+                    # SMART CHECK: Only count errors AFTER the last successful browser_test or build
+                    last_success = await db.logs.find_one(
+                        {"project_id": project_id, "level": "success", 
+                         "message": {"$regex": "(Browser-Test|Build erfolgreich|Alle.*Tests bestanden)"}},
+                        sort=[("timestamp", -1)]
+                    )
                     
-                    if recent_logs:
+                    error_query = {"project_id": project_id, "level": "error"}
+                    if last_success:
+                        # Only count errors that happened AFTER the last successful test
+                        error_query["timestamp"] = {"$gt": last_success.get("timestamp", "")}
+                    
+                    recent_errors = await db.logs.find(error_query).sort("timestamp", -1).limit(10).to_list(10)
+                    
+                    if recent_errors:
                         gate_checks_passed = False
-                        gate_report.append(f"❌ Gate 1 Failed: {len(recent_logs)} Error-Logs gefunden")
-                        await add_log(project_id, "warning", f"Gate Check: {len(recent_logs)} Errors in recent logs", "orchestrator")
+                        gate_report.append(f"❌ Gate 1 Failed: {len(recent_errors)} ungelöste Error-Logs nach letztem erfolgreichen Test")
+                        await add_log(project_id, "warning", f"Gate Check: {len(recent_errors)} unresolved errors", "orchestrator")
                     else:
-                        gate_report.append("✅ Gate 1 Passed: Keine Error-Logs")
+                        gate_report.append("✅ Gate 1 Passed: Keine ungelösten Error-Logs")
                     
                     # Gate 2: Prüfe ob Files existieren
                     files = list(workspace_path.rglob("*"))
@@ -3199,6 +3276,12 @@ SCHRITT 5: FINISH (EXAKT WIE E1!)
 
 🚨 **ABSOLUTE REGELN FÜR mark_complete:**
 
+⚡ **WICHTIG: clear_errors TOOL**
+Wenn mark_complete wegen Error-Logs blockiert wird, aber du weißt dass die Fehler 
+bereits behoben sind (z.B. Build läuft jetzt, Tests bestehen):
+→ Rufe clear_errors("Fehler behoben: Build/Tests erfolgreich") auf
+→ Dann mark_complete erneut aufrufen
+
 VERBOTEN ⛔ wenn:
 ❌ browser_test wurde NICHT aufgerufen
 ❌ browser_test hat IRGENDWELCHE Fehler gefunden
@@ -3560,6 +3643,7 @@ WENN PROBLEME:
 14. debug_error - Fehleranalyse
 15. update_roadmap_status - Fortschritt tracken
 16. mark_complete - FINISH (nur wenn 100% fertig!)
+17. clear_errors - Alte Error-Logs löschen (VOR mark_complete wenn Fehler behoben)
 
 ═══════════════════════════════════════════════════════════════════════════════
               ✨ E1 QUALITY STANDARDS

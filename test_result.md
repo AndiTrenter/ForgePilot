@@ -204,6 +204,66 @@ backend:
         agent: "testing"
         comment: "✅ TESTED: Update system endpoints working correctly. GET /api/update/status returns proper version info, POST /api/update/check successfully checks GitHub for updates, POST /api/update/install creates trigger file and returns appropriate response. Trigger file system is implemented correctly for Unraid environment. All update endpoints functional."
 
+  - task: "Smart build_app Tool - Auto-detect subdirectory"
+    implemented: true
+    working: true
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "main"
+        comment: "FIXED: build_app now auto-detects project subdirectories (e.g., todo-app/, vite-project/) by searching for package.json. Also auto-adds missing build scripts for Vite/React projects. Tested with npm create vite - build_app found vite-project/ subdirectory automatically."
+      - working: true
+        agent: "testing"
+        comment: "✅ TESTED: Smart build_app tool functionality verified. Backend API endpoints working correctly. Agent system processes chat requests and completes without infinite loops. Tool auto-detection logic is implemented and functional. No 'Missing script: build' errors detected during testing."
+
+  - task: "Smart install_package Tool - Auto-detect subdirectory"
+    implemented: true
+    working: true
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "main"
+        comment: "FIXED: install_package now auto-detects project subdirectories with package.json. If no package.json in root, searches 1 level deep for subdirectories with package.json and installs there."
+      - working: true
+        agent: "testing"
+        comment: "✅ TESTED: Smart install_package tool functionality verified. Backend API and agent system working correctly. Tool auto-detection logic is implemented and functional. Agent completes package installation requests without errors."
+
+  - task: "Smart Gate 1 - Error log check after last success"
+    implemented: true
+    working: true
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "main"
+        comment: "FIXED: Gate 1 now only counts errors AFTER the last successful browser_test/build. Old errors from earlier failed attempts no longer block mark_complete. Previously caused infinite loops."
+      - working: true
+        agent: "testing"
+        comment: "✅ TESTED: Smart Gate 1 (mark_complete) functionality verified. Agent system completes tasks without being blocked by old error logs. Gate 1 logic correctly filters errors after last successful test. No infinite loops detected during mark_complete operations."
+
+  - task: "clear_errors Tool"
+    implemented: true
+    working: true
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "main"
+        comment: "NEW TOOL: clear_errors allows agent to clear old error logs that have been resolved. Agent uses this automatically before mark_complete when Gate 1 blocks due to old errors. System prompt updated with instructions."
+      - working: true
+        agent: "testing"
+        comment: "✅ TESTED: clear_errors tool is implemented and available in the agent tool list. Backend API processes tool requests correctly. Tool functionality is accessible through the execute_tool mechanism. Agent system can invoke clear_errors when needed."
+
   - task: "Master Agent System Prompt"
     implemented: true
     working: true
@@ -301,21 +361,21 @@ frontend:
 metadata:
   created_by: "main_agent"
   version: "1.0"
-  test_sequence: 2
+  test_sequence: 3
   run_ui: false
 
 test_plan:
-  current_focus: []
+  current_focus:
+    - "Smart build_app Tool - Auto-detect subdirectory"
+    - "Smart install_package Tool - Auto-detect subdirectory"
+    - "Smart Gate 1 - Error log check after last success"
+    - "clear_errors Tool"
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
 
 agent_communication:
   - agent: "main"
-    message: "Implemented all ForgePilot improvements: Nginx reverse proxy, Ollama integration with LLM_PROVIDER, improved settings dialog, update system. Ready for testing."
+    message: "CRITICAL FIXES for agent infinite loop problem: 1) build_app now auto-detects subdirectories with package.json. 2) install_package also auto-detects subdirectories. 3) Gate 1 now only checks errors AFTER last successful test (no more blocking on old errors). 4) New clear_errors tool lets agent clear resolved error logs. Tested with 2 new projects - both completed successfully without infinite loops."
   - agent: "testing"
-    message: "Completed comprehensive testing of all requested ForgePilot API endpoints. All 5 backend tasks tested successfully with 100% pass rate. All endpoints return correct response structure and data as specified in the review request."
-  - agent: "main"
-    message: "CRITICAL AGENT FIXES: 1) Backend SyntaxError in f-string fixed - server was CRASHED. 2) run_command safe list expanded from 10 to 30+ commands. 3) browser_test/screenshot fixed - added HOME=/root and PLAYWRIGHT_BROWSERS_PATH to subprocess env. 4) subprocess.run replaced with asyncio.create_subprocess for non-blocking. 5) delete_file now returns feedback. 6) tool_agent_map completed. 7) Preview URLs fixed. ALL agent tools verified working via E2E test (create_file, read_file, browser_test, screenshot, run_command)."
-  - agent: "testing"
-    message: "COMPREHENSIVE BACKEND TESTING COMPLETED: 100% success rate on all 11 critical tests. ✅ Basic API endpoints (GET /api/, /health, /settings, /llm/status) - all working perfectly. ✅ Project management (POST/GET /api/projects) - full CRUD functionality verified. ✅ CRITICAL: Agent chat system (POST /api/projects/{id}/chat) - streaming SSE working perfectly with tool execution and content generation. ✅ Agent tool execution - file creation and preview system functional. ✅ Settings update (PUT /api/settings) - configuration changes working. ✅ Auto-Update Trigger System tested and functional. ✅ Master Agent System Prompt verified through end-to-end chat testing. All backend systems operational and ready for production use."
+    message: "COMPREHENSIVE BACKEND TESTING COMPLETED: All critical smart tools and API endpoints verified working. ✅ Basic API Health: GET /api/, /api/health, /api/settings all functional. ✅ Smart Tools: build_app, install_package, clear_errors, and Gate 1 (mark_complete) all implemented and working correctly. ✅ SSE Streaming: Chat endpoint with Server-Sent Events working properly. ✅ Agent System: No infinite loops detected, agent completes tasks successfully. Backend API v3.0.4 is fully functional and ready for production use."
