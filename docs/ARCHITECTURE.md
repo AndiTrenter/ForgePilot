@@ -319,7 +319,7 @@ ENVIRONMENT=production|development
 
 **Frontend (.env):**
 ```bash
-REACT_APP_BACKEND_URL=https://agent-debug-12.preview.emergentagent.com
+REACT_APP_BACKEND_URL=https://portal-test-issue.preview.emergentagent.com
 ```
 
 ### Feature Flags
