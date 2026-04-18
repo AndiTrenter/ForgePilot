@@ -1994,7 +1994,8 @@ async def run_browser_test():
                     
                     # Scenario: Click buttons
                     elif "button" in scenario_lower or "click" in scenario_lower:
-                        buttons = await page.query_selector_all("button:not([type='submit'])")
+                        # Search for both <button> elements AND <a> tags styled as buttons
+                        buttons = await page.query_selector_all("button:not([type='submit']), a.btn-primary, a.btn-secondary, a.btn, a[class*='button'], a[class*='btn'], [role='button']")
                         
                         if buttons:
                             for j, btn in enumerate(buttons[:3]):  # Test first 3 buttons
@@ -2010,20 +2011,22 @@ async def run_browser_test():
                     
                     # Scenario: Navigation
                     elif "nav" in scenario_lower or "link" in scenario_lower:
-                        links = await page.query_selector_all("a[href]:not([href^='#'])")
+                        # Include BOTH anchor links (#section) AND regular links
+                        links = await page.query_selector_all("a[href], nav a, .nav a, [class*='nav'] a")
                         
                         if links:
-                            for j, link in enumerate(links[:3]):  # Test first 3 links
+                            for j, link in enumerate(links[:5]):  # Test first 5 links
                                 link_text = await link.inner_text() or f"Link {{j+1}}"
                                 link_href = await link.get_attribute("href")
                                 
-                                # Only click internal links
-                                if link_href and not link_href.startswith("http"):
+                                if link_href:
                                     try:
                                         await link.click()
-                                        await page.wait_for_timeout(1000)
+                                        await page.wait_for_timeout(500)
                                         test_results["passed"].append(f"✓ Navigation: {{link_text}}")
-                                        await page.go_back()
+                                        # Only go back for non-anchor links
+                                        if not link_href.startswith("#") and not link_href.startswith("mailto:"):
+                                            await page.go_back()
                                     except:
                                         test_results["failed"].append(f"✗ Navigation fehlgeschlagen: {{link_text}}")
                         else:
@@ -2531,82 +2534,246 @@ USE CASE: {use_case or "General integration"}
             style = arguments.get("style", "modern")
             
             await update_agent(project_id, "planner", "running", "Design Guidelines...")
-            await add_log(project_id, "info", f"🎨 Design Guidelines: {app_type}", "planner")
+            await add_log(project_id, "info", f"🎨 Design Guidelines: {app_type} ({style})", "planner")
             
-            guidelines = f"""🎨 DESIGN GUIDELINES
+            # Base CSS that MUST always be included
+            base_css = """/* ═══ PFLICHT: Google Fonts ═══ */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Playfair+Display:wght@400;500;600;700;900&display=swap');
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+body { font-family: 'Inter', sans-serif; line-height: 1.6; -webkit-font-smoothing: antialiased; }
+h1, h2, h3 { font-family: 'Playfair Display', serif; }
+
+/* ═══ Utility-Klassen ═══ */
+.container { max-width: 1200px; margin: 0 auto; padding: 0 2rem; }
+.section { padding: 6rem 2rem; }
+.text-center { text-align: center; }
+
+/* ═══ Navigation (PFLICHT!) ═══ */
+nav { position: fixed; top: 0; width: 100%; z-index: 1000; padding: 1.5rem 0; transition: all 0.4s ease; background: transparent; }
+nav.scrolled { background: rgba(10,10,10,0.95); backdrop-filter: blur(20px); padding: 0.8rem 0; box-shadow: 0 4px 30px rgba(0,0,0,0.3); }
+nav .nav-container { max-width: 1200px; margin: 0 auto; padding: 0 2rem; display: flex; justify-content: space-between; align-items: center; }
+nav .logo { font-family: 'Playfair Display', serif; font-size: 1.5rem; font-weight: 700; color: white; text-decoration: none; }
+nav .nav-links { display: flex; gap: 2rem; list-style: none; }
+nav .nav-links a { color: rgba(255,255,255,0.8); text-decoration: none; font-size: 0.9rem; font-weight: 500; transition: color 0.3s; letter-spacing: 0.05em; }
+nav .nav-links a:hover { color: white; }
+
+/* ═══ Scroll-Reveal Animationen (PFLICHT!) ═══ */
+.reveal { opacity: 0; transform: translateY(40px); transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1); }
+.reveal.active { opacity: 1; transform: translateY(0); }
+.reveal-delay-1 { transition-delay: 0.15s; }
+.reveal-delay-2 { transition-delay: 0.3s; }
+.reveal-delay-3 { transition-delay: 0.45s; }
+
+@keyframes fadeInUp { from { opacity: 0; transform: translateY(30px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+@keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
+
+/* ═══ Hover-Effekte ═══ */
+.hover-lift { transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.4s ease; }
+.hover-lift:hover { transform: translateY(-10px); box-shadow: 0 25px 60px rgba(0,0,0,0.25); }
+.hover-glow:hover { box-shadow: 0 0 40px rgba(99, 102, 241, 0.3); }
+
+/* ═══ Glasmorphism ═══ */
+.glass { background: rgba(255,255,255,0.05); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; }
+
+/* ═══ Gradient Text ═══ */
+.gradient-text { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+
+/* ═══ Buttons ═══ */
+.btn-primary { display: inline-block; padding: 1rem 2.5rem; background: linear-gradient(135deg, #667eea, #764ba2); color: white; text-decoration: none; border-radius: 50px; font-weight: 600; border: none; cursor: pointer; transition: all 0.3s ease; box-shadow: 0 10px 30px rgba(102,126,234,0.3); font-size: 1rem; font-family: 'Inter', sans-serif; }
+.btn-primary:hover { transform: translateY(-3px); box-shadow: 0 15px 40px rgba(102,126,234,0.5); }
+.btn-secondary { display: inline-block; padding: 1rem 2.5rem; background: transparent; color: white; text-decoration: none; border-radius: 50px; font-weight: 600; border: 2px solid rgba(255,255,255,0.3); cursor: pointer; transition: all 0.3s ease; font-family: 'Inter', sans-serif; }
+.btn-secondary:hover { background: rgba(255,255,255,0.1); border-color: white; }
+
+/* ═══ Karten ═══ */
+.card { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; padding: 2.5rem; transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
+.card:hover { border-color: rgba(102, 126, 234, 0.4); box-shadow: 0 20px 60px rgba(0,0,0,0.3), 0 0 30px rgba(102,126,234,0.1); }
+
+/* ═══ Statistik-Zahlen ═══ */
+.stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 2rem; margin: 3rem 0; }
+.stat-number { font-size: 3rem; font-weight: 800; letter-spacing: -0.03em; font-family: 'Inter', sans-serif; }
+.stat-label { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.15em; opacity: 0.6; margin-top: 0.5rem; }
+
+/* ═══ Galerie/Bilder ═══ */
+.image-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem; }
+.image-card { position: relative; overflow: hidden; border-radius: 12px; aspect-ratio: 4/3; }
+.image-card img { width: 100%; height: 100%; object-fit: cover; transition: transform 0.5s ease; }
+.image-card:hover img { transform: scale(1.08); }
+
+/* ═══ Responsive ═══ */
+@media (max-width: 768px) {
+  .hero h1 { font-size: 2.5rem; }
+  .section { padding: 4rem 1.5rem; }
+  nav .nav-links { display: none; }
+  .grid { grid-template-columns: 1fr; }
+  .stats-grid { grid-template-columns: repeat(2, 1fr); }
+}
+"""
+            
+            guidelines = f"""🎨 PROFESSIONELLE DESIGN GUIDELINES
 
 APP TYPE: {app_type}
 STYLE: {style}
 
-COLOR SCHEME:
+═══ PFLICHT-CSS (immer einbinden!) ═══
+{base_css}
 """
             
-            if app_type == "dashboard":
-                guidelines += """• Primary: #3B82F6 (Blue)
-• Secondary: #10B981 (Green)
-• Background: #F9FAFB (Light Gray)
-• Text: #1F2937 (Dark Gray)
-• Accent: #F59E0B (Orange)
+            if app_type == "landing_page" or "onepager" in app_type.lower() or "website" in app_type.lower():
+                guidelines += """
+═══ LANDING PAGE / ONEPAGER DESIGN ═══
 
-LAYOUT:
-• Sidebar navigation (240px wide)
-• Main content area with padding
-• Cards for metrics/data
-• Responsive grid layout
+FARBSCHEMA (wähle passend zur Branche):
+- Dark Elegant: bg #0a0a0a, text #ffffff, accent #e2b04a (Gold)
+- Dark Tech: bg #0f172a, text #f8fafc, accent #3b82f6 (Blau)
+- Dark Bold: bg #1e1b4b, text #f5f3ff, accent #8b5cf6 (Violett)
 
-COMPONENTS:
-• Charts: Use Chart.js or Recharts
-• Tables: Striped rows, hover effects
-• Buttons: Rounded, solid colors
-• Cards: White bg, shadow, rounded corners
+STRUKTUR (MINIMUM 5 SECTIONS!):
+1. HERO: Vollbild, Bild-Hintergrund mit Overlay, großer Titel, CTA
+2. ÜBER UNS: Text mit Bild, Zahlen/Statistiken
+3. LEISTUNGEN: Grid mit Karten, Icons, Hover-Effekte
+4. TESTIMONIALS/GALERIE: Kundenstimmen oder Bildergalerie
+5. KONTAKT/CTA: Footer mit Kontaktinfo und finaler CTA
 
-TYPOGRAPHY:
-• Headings: Inter, bold
-• Body: Inter, regular
-• Code: Fira Code (monospace)
+HERO SECTION CSS:
+.hero {
+  min-height: 100vh;
+  background: linear-gradient(135deg, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0.4) 100%), 
+              url('UNSPLASH_BILD_URL') center/cover no-repeat;
+  display: flex; align-items: center; justify-content: center;
+  color: white; text-align: center; position: relative; overflow: hidden;
+}
+.hero h1 { font-size: clamp(2.5rem, 6vw, 5rem); font-weight: 800; letter-spacing: -0.03em; line-height: 1.1; }
+.hero p { font-size: 1.25rem; opacity: 0.85; max-width: 600px; margin: 1.5rem auto; }
+
+KARTEN CSS:
+.card {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 16px; padding: 2.5rem;
+  transition: all 0.4s ease;
+}
+.card:hover {
+  transform: translateY(-8px);
+  border-color: rgba(99, 102, 241, 0.5);
+  box-shadow: 0 20px 60px rgba(0,0,0,0.3), 0 0 30px rgba(99,102,241,0.1);
+}
+
+BILDER (Unsplash - IMMER nutzen!):
+- Auto/Werkstatt Hero: https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?w=1920&h=1080&fit=crop
+- Motor/Engine: https://images.unsplash.com/photo-1486262715619-67b85e0b08d3?w=800&h=600&fit=crop
+- Sportwagen: https://images.unsplash.com/photo-1544636331-e26879cd4d9b?w=800&h=600&fit=crop
+- Tech/Abstract: https://images.unsplash.com/photo-1518770660439-4636190af475?w=1920&h=1080&fit=crop
+- Office/Business: https://images.unsplash.com/photo-1497366216548-37526070297c?w=1920&h=1080&fit=crop
+- Restaurant/Food: https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=1920&h=1080&fit=crop
+
+PFLICHT JAVASCRIPT (in script.js):
+// Scroll Reveal Animation
+const reveals = document.querySelectorAll('.reveal');
+window.addEventListener('scroll', () => {
+  reveals.forEach(el => {
+    const top = el.getBoundingClientRect().top;
+    if (top < window.innerHeight - 100) el.classList.add('active');
+  });
+});
+// Navigation Scroll Effect
+window.addEventListener('scroll', () => {
+  const nav = document.querySelector('nav');
+  if (window.scrollY > 50) nav.classList.add('scrolled');
+  else nav.classList.remove('scrolled');
+});
+
+PFLICHT HTML-STRUKTUR (MINIMUM 8 SECTIONS!):
+1. <nav> (fixed, links, logo)
+2. <section class="hero"> (Vollbild mit Overlay + CTA)
+3. <section> Über uns (Text + Statistik-Zahlen)
+4. <section> Leistungen (Grid mit 3-4 Karten)
+5. <section> Galerie/Bilder (2-3 Bilder mit Overlay)
+6. <section> Testimonials (Kundenzitate)
+7. <section> CTA (Gradient-Hintergrund + Button)
+8. <footer> (Kontakt, Links, Copyright)
 """
-            elif app_type == "landing_page":
-                guidelines += """• Primary: #6366F1 (Indigo)
-• Secondary: #EC4899 (Pink)
-• Background: #FFFFFF (White)
-• Text: #111827 (Almost Black)
-• Accent: #8B5CF6 (Purple)
+            elif app_type == "dashboard":
+                guidelines += """
+═══ DASHBOARD DESIGN ═══
+
+FARBEN:
+- Background: #0f172a (Slate 900)
+- Surface: #1e293b (Slate 800)
+- Border: #334155 (Slate 700)
+- Primary: #3b82f6 (Blue)
+- Success: #10b981 (Green)
+- Text: #f8fafc (Slate 50)
 
 LAYOUT:
-• Hero section with CTA
-• Features section (3-column grid)
-• Testimonials
-• Footer with links
+- Sidebar: 260px, fixed, dark
+- Topbar: 64px, glass effect
+- Content: Grid mit Cards
+- Cards: Dark bg, subtle border, hover glow
 
-COMPONENTS:
-• Buttons: Large, gradient backgrounds
-• Images: High quality, optimized
-• Icons: Heroicons or Lucide
-• Forms: Clean, minimal
+CARD CSS:
+.stat-card {
+  background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+  border: 1px solid #334155; border-radius: 12px; padding: 1.5rem;
+  transition: all 0.3s ease;
+}
+.stat-card:hover { border-color: #3b82f6; box-shadow: 0 0 20px rgba(59,130,246,0.1); }
+.stat-number { font-size: 2rem; font-weight: 700; color: #f8fafc; }
+.stat-label { font-size: 0.875rem; color: #94a3b8; margin-top: 0.25rem; }
+"""
+            elif app_type == "ecommerce" or "shop" in app_type.lower():
+                guidelines += """
+═══ E-COMMERCE DESIGN ═══
 
-BEST PRACTICES:
-• Above-the-fold CTA
-• Social proof (testimonials/logos)
-• Mobile-first design
-• Fast loading (<3s)
+FARBEN:
+- Background: #fafafa
+- Cards: #ffffff, shadow
+- Primary: #111827
+- Accent: #4f46e5 (Indigo)
+- Price: #059669 (Green)
+
+PRODUKT-KARTE CSS:
+.product-card {
+  background: white; border-radius: 16px; overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  transition: all 0.3s ease;
+}
+.product-card:hover { transform: translateY(-4px); box-shadow: 0 12px 40px rgba(0,0,0,0.12); }
+.product-image { width: 100%; aspect-ratio: 1; object-fit: cover; }
+.product-info { padding: 1.5rem; }
+.product-price { font-size: 1.5rem; font-weight: 700; color: #059669; }
 """
             else:
-                guidelines += f"""• Choose color scheme based on brand
-• Use consistent spacing (8px grid)
-• Limit to 2-3 fonts
-• Ensure high contrast for readability
-• Mobile-responsive design
-• Accessibility (WCAG AA)
+                guidelines += f"""
+═══ {app_type.upper()} DESIGN ═══
 
-RECOMMENDED:
-• Use Tailwind CSS for styling
-• Component library: shadcn/ui or DaisyUI
-• Icons: Heroicons or Lucide React
-• Fonts: Inter, Poppins, or Roboto
+DESIGN-PRINZIPIEN:
+- Konsistente Farben (max 3-4 Farben)
+- 8px Grid-System für Abstände
+- Max 2 Schriftarten (Google Fonts!)
+- Hoher Kontrast für Lesbarkeit
+- Mobile-first responsive
+
+EMPFOHLENE TOOLS:
+- CSS Grid & Flexbox für Layout
+- CSS Custom Properties für Farben
+- CSS Transitions & Animations
+- Google Fonts: Inter (UI), Playfair Display (Elegant)
+- Unsplash für Bilder
+
+MINIMUM ANFORDERUNGEN:
+✓ Keine Default-Browser-Styles
+✓ Professionelle Farbpalette
+✓ Hover-Effekte auf interaktiven Elementen
+✓ Mindestens 1 Animation/Transition
+✓ Responsive Layout (min. Flexbox)
 """
             
             result["output"] = guidelines
-            await add_log(project_id, "success", "Design Guidelines erstellt", "planner")
+            await add_log(project_id, "success", "Professionelle Design Guidelines erstellt", "planner")
             await update_agent(project_id, "planner", "completed", "Guidelines ready")
         
         elif tool_name == "advanced_test":
@@ -2988,6 +3155,11 @@ SCHRITT 1: VERSTEHEN & PLANEN (wie E1!)
 │  ├─ Neueste Techniken (2025!)
 │  ├─ Häufige Fehler vermeiden
 │  └─ Performance-Optimierungen
+├─ 3b. DESIGN GUIDELINES (get_design_guidelines) - PFLICHT BEI WEBSITES!
+│  ├─ IMMER aufrufen wenn UI/Website erstellt wird!
+│  ├─ get_design_guidelines("landing_page", "elegant") für Websites
+│  ├─ get_design_guidelines("dashboard", "modern") für Dashboards
+│  └─ CSS-Templates und Farbpaletten nutzen!
 ├─ 4. ARCHITEKTUR PLANEN
 │  ├─ Welche Dateien? (index.html, style.css, script.js?)
 │  ├─ Welche Funktionen/Klassen?
@@ -2997,6 +3169,171 @@ SCHRITT 1: VERSTEHEN & PLANEN (wie E1!)
    └─ Jeden Step mit Status tracken
 
 SCHRITT 2: IMPLEMENTIERUNG (wie E1!)
+
+═══════════════════════════════════════════════════════════════════════════════
+              🎨 DESIGN-QUALITÄTSSTANDARD (ABSOLUT KRITISCH!)
+═══════════════════════════════════════════════════════════════════════════════
+
+⛔⛔⛔ **NIEMALS PLAIN HTML OHNE STYLING ERSTELLEN!** ⛔⛔⛔
+❌ NIEMALS: <h1>Willkommen</h1><p>Text</p><ul><li>Item</li></ul>
+❌ NIEMALS: Standard-Browser-Styling (Times New Roman, weiß, keine Effekte)
+❌ NIEMALS: Websites ohne Bilder (wenn angemessen)
+❌ NIEMALS: Generische, langweilige Texte
+
+✅ IMMER: Professionelles, modernes CSS mit visuellen Effekten
+✅ IMMER: Google Fonts für schöne Typografie
+✅ IMMER: Farbverläufe, Schatten, Animationen
+✅ IMMER: Bilder von Unsplash (kostenlos, hochwertig)
+✅ IMMER: Marketing-orientierte, emotionale Texte
+
+🖼️ **BILDER - IMMER UNSPLASH NUTZEN:**
+Format: https://images.unsplash.com/photo-[ID]?w=1200&h=800&fit=crop
+Beispiele für verschiedene Branchen:
+- Autos/Werkstatt: https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?w=1200&h=800&fit=crop
+- Technologie: https://images.unsplash.com/photo-1518770660439-4636190af475?w=1200&h=800&fit=crop
+- Natur: https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=1200&h=800&fit=crop
+- Business: https://images.unsplash.com/photo-1497366216548-37526070297c?w=1200&h=800&fit=crop
+- Essen: https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=1200&h=800&fit=crop
+- Sport: https://images.unsplash.com/photo-1461896836934-bd45ba048078?w=1200&h=800&fit=crop
+- Gesundheit: https://images.unsplash.com/photo-1505751172876-fa1923c5c528?w=1200&h=800&fit=crop
+→ SUCHE passende Bilder auf unsplash.com via web_search wenn nötig!
+
+🎨 **CSS-MINDESTSTANDARD FÜR ALLE WEBSITES:**
+
+```css
+/* PFLICHT: Google Fonts einbinden */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Playfair+Display:wght@400;500;600;700&display=swap');
+
+/* PFLICHT: CSS Reset & Basis */
+*, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0; }}
+html {{ scroll-behavior: smooth; }}
+body {{ font-family: 'Inter', sans-serif; line-height: 1.6; }}
+
+/* PFLICHT: Moderne Effekte nutzen */
+/* Glasmorphism */
+.glass {{ background: rgba(255,255,255,0.1); backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.15); }}
+
+/* Gradient Text */
+.gradient-text {{ background: linear-gradient(135deg, #667eea, #764ba2); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }}
+
+/* Smooth Hover */
+.hover-lift {{ transition: transform 0.3s ease, box-shadow 0.3s ease; }}
+.hover-lift:hover {{ transform: translateY(-5px); box-shadow: 0 20px 40px rgba(0,0,0,0.15); }}
+
+/* Scroll Animations */
+.fade-in {{ opacity: 0; transform: translateY(30px); animation: fadeInUp 0.8s ease forwards; }}
+@keyframes fadeInUp {{ to {{ opacity: 1; transform: translateY(0); }} }}
+```
+
+🏗️ **LANDING PAGE / ONEPAGER TEMPLATE:**
+Wenn der User eine Website/Onepager will, IMMER dieses Muster verwenden:
+
+```html
+<!-- HERO SECTION: Vollbild, Bild-Hintergrund, Overlay, großer Text -->
+<section style="min-height:100vh; background:linear-gradient(rgba(0,0,0,0.6),rgba(0,0,0,0.8)), url('UNSPLASH_URL') center/cover; display:flex; align-items:center; justify-content:center; color:white; text-align:center;">
+  <div>
+    <h1 style="font-size:clamp(2rem,5vw,4.5rem); font-weight:800; letter-spacing:-0.02em;">HEADLINE</h1>
+    <p style="font-size:1.25rem; opacity:0.85; max-width:600px; margin:1rem auto;">Subheadline</p>
+    <a href="#" style="display:inline-block; padding:1rem 2.5rem; background:linear-gradient(135deg,#667eea,#764ba2); color:white; text-decoration:none; border-radius:50px; font-weight:600; margin-top:2rem; transition:transform 0.3s; box-shadow:0 10px 30px rgba(102,126,234,0.4);">CTA Button</a>
+  </div>
+</section>
+
+<!-- FEATURES: Grid mit Karten, Icons, Hover-Effekte -->
+<section style="padding:6rem 2rem; background:#0a0a0a; color:white;">
+  <h2 style="text-align:center; font-size:2.5rem; margin-bottom:3rem;">Unsere Leistungen</h2>
+  <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:2rem; max-width:1200px; margin:0 auto;">
+    <!-- Karten mit Hover-Effekt, Gradient-Border, Icon -->
+  </div>
+</section>
+```
+
+🎭 **FARBPALETTEN (wähle basierend auf Branche):**
+- **Elegant/Luxus:** #0a0a0a, #1a1a2e, #e2b04a (Gold), #ffffff
+- **Tech/Modern:** #0f172a, #1e293b, #3b82f6 (Blau), #60a5fa
+- **Natur/Gesund:** #064e3b, #065f46, #10b981 (Grün), #f0fdf4
+- **Kreativ/Bold:** #1e1b4b, #312e81, #8b5cf6 (Violett), #c4b5fd
+- **Warm/Einladend:** #1c1917, #44403c, #f59e0b (Amber), #fef3c7
+- **Werkstatt/Auto:** #0c0c0c, #1a1a1a, #ef4444 (Rot), #dc2626, #f97316 (Orange)
+
+📝 **MARKETING-TEXTE RICHTLINIEN:**
+- NIEMALS generisch schreiben ("Willkommen auf unserer Website")
+- IMMER emotional und benefit-orientiert:
+  ❌ "Wir bieten Motortuning" 
+  ✅ "Entfesseln Sie das volle Potenzial Ihres Fahrzeugs — Leistungssteigerung auf Profi-Niveau"
+- IMMER Verben der Transformation nutzen: "Entfesseln", "Verwandeln", "Erleben", "Entdecken"
+- IMMER soziale Beweise einbauen: Zahlen, Jahre Erfahrung, zufriedene Kunden
+- CTAs: Konkret und handlungsorientiert ("Jetzt Beratung anfragen" statt "Kontakt")
+
+🔥 **PREMIUM-REFERENZ: So muss eine ONEPAGER-WEBSITE MINDESTENS aussehen!**
+
+Die CSS-Datei MUSS mindestens 150 Zeilen haben für eine Website.
+Die HTML-Datei MUSS mindestens 6 Sections haben für eine Website.
+IMMER responsive (min. flexbox/grid).
+IMMER hover-Effekte auf Buttons/Karten.
+IMMER mindestens 3-4 Unsplash-Bilder bei Landing Pages.
+IMMER CSS-Animationen (fade-in, slide, hover-lift, parallax).
+IMMER Google Fonts (niemals Standard-Schriftarten).
+IMMER eine fixierte Navigation mit Scroll-Effekt.
+IMMER Statistik-Zahlen / Social Proof Sektion.
+
+📋 **PFLICHT-SECTIONS FÜR LANDING PAGES (MINIMUM!):**
+1. **Navigation** (fixed, transparent → solid bei Scroll)
+2. **Hero** (Vollbild, Unsplash-Hintergrund, Overlay, H1 + CTA)
+3. **Über uns / Story** (Text + Bild nebeneinander, Statistik-Zahlen)
+4. **Leistungen/Features** (3-4 Karten im Grid, Icons, Hover)
+5. **Galerie / Bildsektion** (2-3 Bilder, evtl. Overlay-Text)
+6. **Testimonials** (Kundenzitate mit Sternebewertung)
+7. **CTA-Sektion** (Gradient-Hintergrund, großer Button)
+8. **Footer** (Kontaktdaten, Links, Social Media Icons)
+
+🎯 **CSS PFLICHT-FEATURES (für jede Website!):**
+```css
+/* NAVIGATION (PFLICHT!) */
+nav {{
+  position: fixed; top: 0; width: 100%; z-index: 1000;
+  padding: 1.5rem 0; transition: all 0.4s ease;
+  background: transparent;
+}}
+nav.scrolled {{
+  background: rgba(10,10,10,0.95); backdrop-filter: blur(20px);
+  padding: 0.8rem 0; box-shadow: 0 4px 30px rgba(0,0,0,0.3);
+}}
+
+/* SCROLL-ANIMATIONEN (PFLICHT!) */
+.reveal {{ opacity: 0; transform: translateY(40px); transition: all 0.8s ease; }}
+.reveal.active {{ opacity: 1; transform: translateY(0); }}
+
+/* PARALLAX-EFFEKT */
+.parallax {{ background-attachment: fixed; background-size: cover; }}
+
+/* GRADIENT-SECTION */
+.gradient-bg {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }}
+
+/* STATISTIK-ZAHLEN */
+.stat {{ font-size: 3rem; font-weight: 800; letter-spacing: -0.03em; }}
+.stat-label {{ font-size: 0.875rem; text-transform: uppercase; letter-spacing: 0.1em; opacity: 0.7; }}
+```
+
+🎯 **JavaScript PFLICHT-FEATURES:**
+```javascript
+// SCROLL REVEAL (PFLICHT für jede Website!)
+const reveals = document.querySelectorAll('.reveal');
+window.addEventListener('scroll', () => {{
+  reveals.forEach(el => {{
+    const top = el.getBoundingClientRect().top;
+    if (top < window.innerHeight - 100) el.classList.add('active');
+  }});
+}});
+
+// NAVIGATION SCROLL-EFFEKT (PFLICHT!)
+window.addEventListener('scroll', () => {{
+  const nav = document.querySelector('nav');
+  if (window.scrollY > 50) nav.classList.add('scrolled');
+  else nav.classList.remove('scrolled');
+}});
+```
+
+═══════════════════════════════════════════════════════════════════════════════
 
 ⚠️ **KRITISCH: ForgePilot HAT ALLE TOOLS - NUTZE SIE!**
 
@@ -3125,13 +3462,15 @@ BEISPIEL 2: Express API mit PostgreSQL
 7. browser_test(["GET /api/users", "POST /api/users"])
 ```
 
-BEISPIEL 3: Simple HTML-App (KEIN React)
+BEISPIEL 3: Simple HTML-App (KEIN React) - PROFESSIONELL!
 ```
-1. create_file("index.html", {{...}})
-2. create_file("style.css", {{...}})
-3. create_file("script.js", {{...}})
-4. browser_test(["Click button", "Verify animation"])
+1. get_design_guidelines(app_type="landing_page", style="elegant")  ← IMMER Design holen!
+2. create_file("index.html", {{...PROFESSIONELLES HTML mit Sections, Hero, Bildern...}})
+3. create_file("style.css", {{...MINDESTENS 100 Zeilen CSS mit Animationen, Hover, Responsive...}})
+4. create_file("script.js", {{...Smooth Scroll, Animationen, Interaktivität...}})
+5. browser_test(["Verify hero section", "Check animations", "Test responsiveness"])
 ```
+⚠️ NIEMALS plain HTML ohne Styling erstellen!
 
 ❌ HÄUFIGE FEHLER - VERMEIDE DIESE:
 
