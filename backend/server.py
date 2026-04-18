@@ -1995,7 +1995,16 @@ async def run_browser_test():
                     # Scenario: Click buttons
                     elif "button" in scenario_lower or "click" in scenario_lower:
                         # Search for both <button> elements AND <a> tags styled as buttons
-                        buttons = await page.query_selector_all("button:not([type='submit']), a.btn-primary, a.btn-secondary, a.btn, a[class*='button'], a[class*='btn'], [role='button']")
+                        # Includes Tailwind-styled buttons (rounded-full, bg-gradient, etc.)
+                        buttons = await page.query_selector_all(
+                            "button:not([type='submit']), "
+                            "a.btn-primary, a.btn-secondary, a.btn, "
+                            "a[class*='button'], a[class*='btn'], "
+                            "a[class*='rounded-full'], a[class*='bg-gradient'], "
+                            "a[class*='rounded-lg'][class*='px-'], "
+                            "a[class*='rounded-xl'][class*='px-'], "
+                            "[role='button']"
+                        )
                         
                         if buttons:
                             for j, btn in enumerate(buttons[:3]):  # Test first 3 buttons
@@ -2530,250 +2539,354 @@ USE CASE: {use_case or "General integration"}
             await update_agent(project_id, "planner", "completed", "Playbook ready")
         
         elif tool_name == "get_design_guidelines":
-            app_type = arguments["app_type"]
+            app_type = arguments["app_type"].lower()
             style = arguments.get("style", "modern")
             
             await update_agent(project_id, "planner", "running", "Design Guidelines...")
             await add_log(project_id, "info", f"🎨 Design Guidelines: {app_type} ({style})", "planner")
             
-            # Base CSS that MUST always be included
-            base_css = """/* ═══ PFLICHT: Google Fonts ═══ */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Playfair+Display:wght@400;500;600;700;900&display=swap');
-
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-html { scroll-behavior: smooth; }
-body { font-family: 'Inter', sans-serif; line-height: 1.6; -webkit-font-smoothing: antialiased; }
-h1, h2, h3 { font-family: 'Playfair Display', serif; }
-
-/* ═══ Utility-Klassen ═══ */
-.container { max-width: 1200px; margin: 0 auto; padding: 0 2rem; }
-.section { padding: 6rem 2rem; }
-.text-center { text-align: center; }
-
-/* ═══ Navigation (PFLICHT!) ═══ */
-nav { position: fixed; top: 0; width: 100%; z-index: 1000; padding: 1.5rem 0; transition: all 0.4s ease; background: transparent; }
-nav.scrolled { background: rgba(10,10,10,0.95); backdrop-filter: blur(20px); padding: 0.8rem 0; box-shadow: 0 4px 30px rgba(0,0,0,0.3); }
-nav .nav-container { max-width: 1200px; margin: 0 auto; padding: 0 2rem; display: flex; justify-content: space-between; align-items: center; }
-nav .logo { font-family: 'Playfair Display', serif; font-size: 1.5rem; font-weight: 700; color: white; text-decoration: none; }
-nav .nav-links { display: flex; gap: 2rem; list-style: none; }
-nav .nav-links a { color: rgba(255,255,255,0.8); text-decoration: none; font-size: 0.9rem; font-weight: 500; transition: color 0.3s; letter-spacing: 0.05em; }
-nav .nav-links a:hover { color: white; }
-
-/* ═══ Scroll-Reveal Animationen (PFLICHT!) ═══ */
-.reveal { opacity: 0; transform: translateY(40px); transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1); }
-.reveal.active { opacity: 1; transform: translateY(0); }
-.reveal-delay-1 { transition-delay: 0.15s; }
-.reveal-delay-2 { transition-delay: 0.3s; }
-.reveal-delay-3 { transition-delay: 0.45s; }
-
-@keyframes fadeInUp { from { opacity: 0; transform: translateY(30px); } to { opacity: 1; transform: translateY(0); } }
-@keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
-@keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
-@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
-
-/* ═══ Hover-Effekte ═══ */
-.hover-lift { transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.4s ease; }
-.hover-lift:hover { transform: translateY(-10px); box-shadow: 0 25px 60px rgba(0,0,0,0.25); }
-.hover-glow:hover { box-shadow: 0 0 40px rgba(99, 102, 241, 0.3); }
-
-/* ═══ Glasmorphism ═══ */
-.glass { background: rgba(255,255,255,0.05); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; }
-
-/* ═══ Gradient Text ═══ */
-.gradient-text { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
-
-/* ═══ Buttons ═══ */
-.btn-primary { display: inline-block; padding: 1rem 2.5rem; background: linear-gradient(135deg, #667eea, #764ba2); color: white; text-decoration: none; border-radius: 50px; font-weight: 600; border: none; cursor: pointer; transition: all 0.3s ease; box-shadow: 0 10px 30px rgba(102,126,234,0.3); font-size: 1rem; font-family: 'Inter', sans-serif; }
-.btn-primary:hover { transform: translateY(-3px); box-shadow: 0 15px 40px rgba(102,126,234,0.5); }
-.btn-secondary { display: inline-block; padding: 1rem 2.5rem; background: transparent; color: white; text-decoration: none; border-radius: 50px; font-weight: 600; border: 2px solid rgba(255,255,255,0.3); cursor: pointer; transition: all 0.3s ease; font-family: 'Inter', sans-serif; }
-.btn-secondary:hover { background: rgba(255,255,255,0.1); border-color: white; }
-
-/* ═══ Karten ═══ */
-.card { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; padding: 2.5rem; transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
-.card:hover { border-color: rgba(102, 126, 234, 0.4); box-shadow: 0 20px 60px rgba(0,0,0,0.3), 0 0 30px rgba(102,126,234,0.1); }
-
-/* ═══ Statistik-Zahlen ═══ */
-.stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 2rem; margin: 3rem 0; }
-.stat-number { font-size: 3rem; font-weight: 800; letter-spacing: -0.03em; font-family: 'Inter', sans-serif; }
-.stat-label { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.15em; opacity: 0.6; margin-top: 0.5rem; }
-
-/* ═══ Galerie/Bilder ═══ */
-.image-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem; }
-.image-card { position: relative; overflow: hidden; border-radius: 12px; aspect-ratio: 4/3; }
-.image-card img { width: 100%; height: 100%; object-fit: cover; transition: transform 0.5s ease; }
-.image-card:hover img { transform: scale(1.08); }
-
-/* ═══ Responsive ═══ */
-@media (max-width: 768px) {
-  .hero h1 { font-size: 2.5rem; }
-  .section { padding: 4rem 1.5rem; }
-  nav .nav-links { display: none; }
-  .grid { grid-template-columns: 1fr; }
-  .stats-grid { grid-template-columns: repeat(2, 1fr); }
-}
-"""
+            # ═══════════════════════════════════════════════════════════════
+            # BRANCHEN-TEMPLATES mit Tailwind CSS
+            # ═══════════════════════════════════════════════════════════════
             
-            guidelines = f"""🎨 PROFESSIONELLE DESIGN GUIDELINES
-
-APP TYPE: {app_type}
-STYLE: {style}
-
-═══ PFLICHT-CSS (immer einbinden!) ═══
-{base_css}
-"""
+            industry_templates = {
+                "auto": {
+                    "name": "Auto / Werkstatt / Tuning",
+                    "colors": "bg-gray-950 text-white, accent: from-red-600 to-orange-500",
+                    "tailwind_bg": "bg-gray-950",
+                    "accent_gradient": "from-red-600 to-orange-500",
+                    "accent_text": "text-red-500",
+                    "fonts": "font-display für Headlines (Playfair Display), font-sans für Body (Inter)",
+                    "emotion": "Kraft, Power, Geschwindigkeit, Adrenalin",
+                    "images": [
+                        "https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?w=1920&h=1080&fit=crop",
+                        "https://images.unsplash.com/photo-1544636331-e26879cd4d9b?w=800&h=600&fit=crop",
+                        "https://images.unsplash.com/photo-1486262715619-67b85e0b08d3?w=800&h=600&fit=crop",
+                        "https://images.unsplash.com/photo-1503376780353-7e6692767b70?w=800&h=600&fit=crop",
+                        "https://images.unsplash.com/photo-1494976388531-d1058494cdd8?w=1920&h=1080&fit=crop",
+                    ],
+                    "copy_style": "Kraftvoll, direkt, maskulin. 'Entfesseln Sie die volle Power', 'Performance auf höchstem Niveau', 'Ihr Fahrzeug verdient das Beste'",
+                    "stats": ["15+ Jahre Erfahrung", "2000+ PS freigesetzt", "500+ zufriedene Fahrer", "98% Weiterempfehlung"],
+                },
+                "restaurant": {
+                    "name": "Restaurant / Gastronomie / Café",
+                    "colors": "bg-stone-950 text-white, accent: from-amber-600 to-yellow-500",
+                    "tailwind_bg": "bg-stone-950",
+                    "accent_gradient": "from-amber-600 to-yellow-500",
+                    "accent_text": "text-amber-500",
+                    "emotion": "Genuss, Wärme, Gemütlichkeit, Kulinarik",
+                    "images": [
+                        "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=1920&h=1080&fit=crop",
+                        "https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=800&h=600&fit=crop",
+                        "https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=800&h=600&fit=crop",
+                        "https://images.unsplash.com/photo-1551218808-94e220e084d2?w=800&h=600&fit=crop",
+                    ],
+                    "copy_style": "Sinnlich, einladend. 'Kulinarische Meisterwerke', 'Wo jeder Bissen eine Geschichte erzählt', 'Genuss neu definiert'",
+                    "stats": ["10+ Jahre Tradition", "50.000+ Gäste", "4.9★ Bewertung", "100% frische Zutaten"],
+                },
+                "fitness": {
+                    "name": "Fitness / Gym / Personal Training",
+                    "colors": "bg-zinc-950 text-white, accent: from-lime-500 to-emerald-500",
+                    "tailwind_bg": "bg-zinc-950",
+                    "accent_gradient": "from-lime-500 to-emerald-500",
+                    "accent_text": "text-lime-400",
+                    "emotion": "Motivation, Stärke, Transformation, Energie",
+                    "images": [
+                        "https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=1920&h=1080&fit=crop",
+                        "https://images.unsplash.com/photo-1571019614242-c5c5dee9f50b?w=800&h=600&fit=crop",
+                        "https://images.unsplash.com/photo-1517836357463-d25dfeac3438?w=800&h=600&fit=crop",
+                        "https://images.unsplash.com/photo-1549060279-7e168fcee0c2?w=800&h=600&fit=crop",
+                    ],
+                    "copy_style": "Motivierend, energisch. 'Dein stärkstes Ich', 'Grenzen existieren nur im Kopf', 'Transformiere deinen Körper'",
+                    "stats": ["5000+ transformierte Körper", "12+ Jahre Erfahrung", "98% Zielerreichung", "24/7 Support"],
+                },
+                "tech": {
+                    "name": "Technologie / Software / SaaS",
+                    "colors": "bg-slate-950 text-white, accent: from-blue-500 to-cyan-400",
+                    "tailwind_bg": "bg-slate-950",
+                    "accent_gradient": "from-blue-500 to-cyan-400",
+                    "accent_text": "text-blue-400",
+                    "emotion": "Innovation, Zukunft, Effizienz, Vertrauen",
+                    "images": [
+                        "https://images.unsplash.com/photo-1518770660439-4636190af475?w=1920&h=1080&fit=crop",
+                        "https://images.unsplash.com/photo-1550751827-4bd374c3f58b?w=800&h=600&fit=crop",
+                        "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=800&h=600&fit=crop",
+                        "https://images.unsplash.com/photo-1504639725590-34d0984388bd?w=800&h=600&fit=crop",
+                    ],
+                    "copy_style": "Klar, modern, zukunftsorientiert. 'Die Zukunft beginnt hier', 'Technologie die begeistert', 'Innovation trifft Einfachheit'",
+                    "stats": ["99.9% Uptime", "10M+ Nutzer", "50+ Integrationen", "ISO 27001 zertifiziert"],
+                },
+                "immobilien": {
+                    "name": "Immobilien / Makler / Real Estate",
+                    "colors": "bg-neutral-950 text-white, accent: from-emerald-600 to-teal-500",
+                    "tailwind_bg": "bg-neutral-950",
+                    "accent_gradient": "from-emerald-600 to-teal-500",
+                    "accent_text": "text-emerald-400",
+                    "emotion": "Vertrauen, Zuhause, Geborgenheit, Luxus",
+                    "images": [
+                        "https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?w=1920&h=1080&fit=crop",
+                        "https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=800&h=600&fit=crop",
+                        "https://images.unsplash.com/photo-1512917774080-9991f1c4c750?w=800&h=600&fit=crop",
+                        "https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?w=800&h=600&fit=crop",
+                    ],
+                    "copy_style": "Vertrauensvoll, premium. 'Ihr Traumzuhause wartet', 'Wo Zuhause beginnt', 'Premium Immobilien, persönliche Beratung'",
+                    "stats": ["500+ vermittelte Objekte", "20+ Jahre Marktkenntnis", "4.8★ Kundenbewertung", "Ø 30 Tage bis Verkauf"],
+                },
+                "anwalt": {
+                    "name": "Anwalt / Kanzlei / Recht",
+                    "colors": "bg-slate-950 text-white, accent: from-amber-500 to-yellow-400",
+                    "tailwind_bg": "bg-slate-950",
+                    "accent_gradient": "from-amber-500 to-yellow-400",
+                    "accent_text": "text-amber-400",
+                    "emotion": "Vertrauen, Kompetenz, Autorität, Sicherheit",
+                    "images": [
+                        "https://images.unsplash.com/photo-1589829545856-d10d557cf95f?w=1920&h=1080&fit=crop",
+                        "https://images.unsplash.com/photo-1505664194779-8beaceb93744?w=800&h=600&fit=crop",
+                        "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=800&h=600&fit=crop",
+                    ],
+                    "copy_style": "Seriös, kompetent. 'Ihr Recht in besten Händen', 'Kompetenz die überzeugt', 'Wir kämpfen für Ihre Interessen'",
+                    "stats": ["2000+ gewonnene Fälle", "30+ Jahre Erfahrung", "100% Diskretion", "Erstberatung kostenlos"],
+                },
+                "beauty": {
+                    "name": "Beauty / Kosmetik / Friseur / Spa",
+                    "colors": "bg-stone-950 text-white, accent: from-rose-500 to-pink-400",
+                    "tailwind_bg": "bg-stone-950",
+                    "accent_gradient": "from-rose-500 to-pink-400",
+                    "accent_text": "text-rose-400",
+                    "emotion": "Eleganz, Schönheit, Entspannung, Verwöhnung",
+                    "images": [
+                        "https://images.unsplash.com/photo-1560066984-138dadb4c035?w=1920&h=1080&fit=crop",
+                        "https://images.unsplash.com/photo-1522337360788-8b13dee7a37e?w=800&h=600&fit=crop",
+                        "https://images.unsplash.com/photo-1487412947147-5cebf100ffc2?w=800&h=600&fit=crop",
+                    ],
+                    "copy_style": "Elegant, verwöhnend. 'Schönheit neu erleben', 'Ihr Moment der Entspannung', 'Wo Pflege zur Kunst wird'",
+                    "stats": ["5000+ zufriedene Kundinnen", "15+ Jahre Expertise", "100% Naturprodukte", "4.9★ Google Bewertung"],
+                },
+                "handwerk": {
+                    "name": "Handwerk / Bau / Elektriker / Sanitär",
+                    "colors": "bg-zinc-950 text-white, accent: from-yellow-500 to-amber-500",
+                    "tailwind_bg": "bg-zinc-950",
+                    "accent_gradient": "from-yellow-500 to-amber-500",
+                    "accent_text": "text-yellow-400",
+                    "emotion": "Zuverlässigkeit, Qualität, Handwerk, Vertrauen",
+                    "images": [
+                        "https://images.unsplash.com/photo-1504307651254-35680f356dfd?w=1920&h=1080&fit=crop",
+                        "https://images.unsplash.com/photo-1581578731548-c64695cc6952?w=800&h=600&fit=crop",
+                        "https://images.unsplash.com/photo-1621905252507-b35492cc74b4?w=800&h=600&fit=crop",
+                    ],
+                    "copy_style": "Bodenständig, zuverlässig. 'Qualität die man sieht', 'Ihr Meisterbetrieb vor Ort', 'Handwerk mit Leidenschaft'",
+                    "stats": ["25+ Jahre Meisterbetrieb", "3000+ Projekte", "Festpreisgarantie", "24h Notdienst"],
+                },
+                "medizin": {
+                    "name": "Medizin / Arztpraxis / Gesundheit",
+                    "colors": "bg-slate-950 text-white, accent: from-teal-500 to-cyan-400",
+                    "tailwind_bg": "bg-slate-950",
+                    "accent_gradient": "from-teal-500 to-cyan-400",
+                    "accent_text": "text-teal-400",
+                    "emotion": "Vertrauen, Fürsorge, Kompetenz, Gesundheit",
+                    "images": [
+                        "https://images.unsplash.com/photo-1505751172876-fa1923c5c528?w=1920&h=1080&fit=crop",
+                        "https://images.unsplash.com/photo-1579684385127-1ef15d508118?w=800&h=600&fit=crop",
+                        "https://images.unsplash.com/photo-1551190822-a9ce113d0d15?w=800&h=600&fit=crop",
+                    ],
+                    "copy_style": "Vertrauensvoll, fürsorglich. 'Ihre Gesundheit in besten Händen', 'Modernste Medizin, persönliche Betreuung'",
+                    "stats": ["20+ Jahre Praxiserfahrung", "10.000+ Patienten", "Modernste Technik", "Kurze Wartezeiten"],
+                },
+                "ecommerce": {
+                    "name": "E-Commerce / Online-Shop",
+                    "colors": "bg-white text-gray-900, accent: from-indigo-600 to-purple-600",
+                    "tailwind_bg": "bg-gray-50",
+                    "accent_gradient": "from-indigo-600 to-purple-600",
+                    "accent_text": "text-indigo-600",
+                    "emotion": "Vertrauen, Entdeckung, Shopping-Erlebnis",
+                    "images": [
+                        "https://images.unsplash.com/photo-1441986300917-64674bd600d8?w=1920&h=1080&fit=crop",
+                        "https://images.unsplash.com/photo-1472851294608-062f824d29cc?w=800&h=600&fit=crop",
+                        "https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?w=800&h=600&fit=crop",
+                    ],
+                    "copy_style": "Einladend, überzeugend. 'Entdecke was du liebst', 'Kostenloser Versand ab 50€', 'Über 10.000 zufriedene Kunden'",
+                    "stats": ["10.000+ Produkte", "Kostenloser Versand", "30 Tage Rückgabe", "4.8★ Trustpilot"],
+                },
+            }
             
-            if app_type == "landing_page" or "onepager" in app_type.lower() or "website" in app_type.lower():
-                guidelines += """
-═══ LANDING PAGE / ONEPAGER DESIGN ═══
+            # Detect industry from app_type and style
+            detected_industry = None
+            proj_desc = ""
+            try:
+                proj_data = await db.projects.find_one({"id": project_id})
+                if proj_data:
+                    proj_desc = proj_data.get('description', '')
+            except:
+                pass
+            search_terms = (app_type + " " + style + " " + proj_desc).lower()
+            
+            for key, template in industry_templates.items():
+                keywords = key.split("/") + template["name"].lower().split("/")
+                for kw in keywords:
+                    if kw.strip() in search_terms:
+                        detected_industry = key
+                        break
+                if detected_industry:
+                    break
+            
+            # Additional keyword matching
+            keyword_map = {
+                "auto": ["auto", "werkstatt", "tuning", "kfz", "motor", "leistung", "fahrzeug", "car", "garage", "reifen"],
+                "restaurant": ["restaurant", "cafe", "café", "essen", "food", "küche", "gastronomie", "bistro", "bar", "catering"],
+                "fitness": ["fitness", "gym", "sport", "training", "personal", "workout", "yoga", "crossfit", "bodybuilding"],
+                "tech": ["tech", "software", "saas", "app", "digital", "startup", "it", "cloud", "ai", "web"],
+                "immobilien": ["immobilien", "makler", "wohnung", "haus", "real estate", "property", "miete"],
+                "anwalt": ["anwalt", "kanzlei", "recht", "jurist", "law", "rechtsanwalt", "notar"],
+                "beauty": ["beauty", "kosmetik", "friseur", "spa", "wellness", "nail", "haar", "salon", "pflege"],
+                "handwerk": ["handwerk", "bau", "elektrik", "sanitär", "dachdecker", "maler", "tischler", "schreiner", "meister"],
+                "medizin": ["arzt", "praxis", "medizin", "gesundheit", "zahnarzt", "therapeut", "physio", "klinik", "doctor"],
+                "ecommerce": ["shop", "ecommerce", "e-commerce", "online-shop", "store", "produkt", "kaufen"],
+            }
+            
+            if not detected_industry:
+                for key, keywords in keyword_map.items():
+                    for kw in keywords:
+                        if kw in search_terms:
+                            detected_industry = key
+                            break
+                    if detected_industry:
+                        break
+            
+            # Default to tech if nothing detected
+            if not detected_industry:
+                detected_industry = "tech"
+            
+            tmpl = industry_templates[detected_industry]
+            
+            guidelines = f"""🎨 PROFESSIONELLE DESIGN GUIDELINES — TAILWIND CSS
 
-FARBSCHEMA (wähle passend zur Branche):
-- Dark Elegant: bg #0a0a0a, text #ffffff, accent #e2b04a (Gold)
-- Dark Tech: bg #0f172a, text #f8fafc, accent #3b82f6 (Blau)
-- Dark Bold: bg #1e1b4b, text #f5f3ff, accent #8b5cf6 (Violett)
+═══ BRANCHE: {tmpl['name']} ═══
+EMOTION: {tmpl['emotion']}
+FARBSCHEMA: {tmpl['colors']}
 
-STRUKTUR (MINIMUM 5 SECTIONS!):
-1. HERO: Vollbild, Bild-Hintergrund mit Overlay, großer Titel, CTA
-2. ÜBER UNS: Text mit Bild, Zahlen/Statistiken
-3. LEISTUNGEN: Grid mit Karten, Icons, Hover-Effekte
-4. TESTIMONIALS/GALERIE: Kundenstimmen oder Bildergalerie
-5. KONTAKT/CTA: Footer mit Kontaktinfo und finaler CTA
+═══ TAILWIND KONFIGURATION (im <head>!) ═══
+```html
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Playfair+Display:wght@400;500;600;700;900&display=swap" rel="stylesheet">
+<script>
+tailwind.config = {{
+  theme: {{
+    extend: {{
+      fontFamily: {{
+        'sans': ['Inter', 'sans-serif'],
+        'display': ['Playfair Display', 'serif'],
+      }}
+    }}
+  }}
+}}
+</script>
+```
 
-HERO SECTION CSS:
-.hero {
-  min-height: 100vh;
-  background: linear-gradient(135deg, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0.4) 100%), 
-              url('UNSPLASH_BILD_URL') center/cover no-repeat;
-  display: flex; align-items: center; justify-content: center;
-  color: white; text-align: center; position: relative; overflow: hidden;
-}
-.hero h1 { font-size: clamp(2.5rem, 6vw, 5rem); font-weight: 800; letter-spacing: -0.03em; line-height: 1.1; }
-.hero p { font-size: 1.25rem; opacity: 0.85; max-width: 600px; margin: 1.5rem auto; }
+═══ BILDER (Unsplash - NUTZE DIESE!) ═══
+Hero:    {tmpl['images'][0]}
+Bild 2:  {tmpl['images'][1] if len(tmpl['images']) > 1 else 'N/A'}
+Bild 3:  {tmpl['images'][2] if len(tmpl['images']) > 2 else 'N/A'}
+Bild 4:  {tmpl['images'][3] if len(tmpl['images']) > 3 else 'N/A'}
 
-KARTEN CSS:
-.card {
-  background: rgba(255,255,255,0.03);
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 16px; padding: 2.5rem;
-  transition: all 0.4s ease;
-}
-.card:hover {
-  transform: translateY(-8px);
-  border-color: rgba(99, 102, 241, 0.5);
-  box-shadow: 0 20px 60px rgba(0,0,0,0.3), 0 0 30px rgba(99,102,241,0.1);
-}
+═══ STATISTIK-ZAHLEN ═══
+{chr(10).join(f'• {s}' for s in tmpl['stats'])}
 
-BILDER (Unsplash - IMMER nutzen!):
-- Auto/Werkstatt Hero: https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?w=1920&h=1080&fit=crop
-- Motor/Engine: https://images.unsplash.com/photo-1486262715619-67b85e0b08d3?w=800&h=600&fit=crop
-- Sportwagen: https://images.unsplash.com/photo-1544636331-e26879cd4d9b?w=800&h=600&fit=crop
-- Tech/Abstract: https://images.unsplash.com/photo-1518770660439-4636190af475?w=1920&h=1080&fit=crop
-- Office/Business: https://images.unsplash.com/photo-1497366216548-37526070297c?w=1920&h=1080&fit=crop
-- Restaurant/Food: https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=1920&h=1080&fit=crop
+═══ COPYWRITING-STIL ═══
+{tmpl['copy_style']}
 
-PFLICHT JAVASCRIPT (in script.js):
-// Scroll Reveal Animation
-const reveals = document.querySelectorAll('.reveal');
-window.addEventListener('scroll', () => {
-  reveals.forEach(el => {
-    const top = el.getBoundingClientRect().top;
-    if (top < window.innerHeight - 100) el.classList.add('active');
-  });
-});
-// Navigation Scroll Effect
-window.addEventListener('scroll', () => {
-  const nav = document.querySelector('nav');
-  if (window.scrollY > 50) nav.classList.add('scrolled');
-  else nav.classList.remove('scrolled');
-});
+═══ PFLICHT TAILWIND-KLASSEN ═══
 
-PFLICHT HTML-STRUKTUR (MINIMUM 8 SECTIONS!):
-1. <nav> (fixed, links, logo)
-2. <section class="hero"> (Vollbild mit Overlay + CTA)
-3. <section> Über uns (Text + Statistik-Zahlen)
-4. <section> Leistungen (Grid mit 3-4 Karten)
-5. <section> Galerie/Bilder (2-3 Bilder mit Overlay)
-6. <section> Testimonials (Kundenzitate)
-7. <section> CTA (Gradient-Hintergrund + Button)
-8. <footer> (Kontakt, Links, Copyright)
-"""
-            elif app_type == "dashboard":
-                guidelines += """
-═══ DASHBOARD DESIGN ═══
+NAVIGATION:
+<nav id="navbar" class="fixed top-0 w-full z-50 transition-all duration-500 py-5">
+  <div class="max-w-7xl mx-auto px-6 flex justify-between items-center">
+    <a class="font-display text-2xl font-bold text-white">Brand</a>
+    <div class="hidden md:flex gap-8">
+      <a class="text-white/70 hover:text-white transition text-sm tracking-wide">Link</a>
+    </div>
+  </div>
+</nav>
+nav.scrolled → Tailwind: Nutze JS um bg-gray-950/95 backdrop-blur-xl py-3 shadow-2xl zu togglen
 
-FARBEN:
-- Background: #0f172a (Slate 900)
-- Surface: #1e293b (Slate 800)
-- Border: #334155 (Slate 700)
-- Primary: #3b82f6 (Blue)
-- Success: #10b981 (Green)
-- Text: #f8fafc (Slate 50)
+HERO SECTION:
+class="relative min-h-screen flex items-center justify-center text-white text-center"
+style="background: linear-gradient(135deg, rgba(0,0,0,0.7), rgba(0,0,0,0.4)), url('{tmpl['images'][0]}') center/cover"
+H1: class="font-display text-5xl md:text-7xl font-bold tracking-tight leading-tight"
+P: class="text-lg md:text-xl text-white/80 mt-6 max-w-2xl mx-auto"
+CTA: class="px-8 py-4 bg-gradient-to-r {tmpl['accent_gradient']} rounded-full font-semibold shadow-lg hover:-translate-y-1 transition-all"
 
-LAYOUT:
-- Sidebar: 260px, fixed, dark
-- Topbar: 64px, glass effect
-- Content: Grid mit Cards
-- Cards: Dark bg, subtle border, hover glow
+KARTEN:
+class="bg-white/5 border border-white/10 rounded-2xl p-8 hover-lift"
+oder dark: class="bg-gray-900/50 backdrop-blur border border-gray-800 rounded-2xl p-8 hover-lift"
 
-CARD CSS:
-.stat-card {
-  background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
-  border: 1px solid #334155; border-radius: 12px; padding: 1.5rem;
-  transition: all 0.3s ease;
-}
-.stat-card:hover { border-color: #3b82f6; box-shadow: 0 0 20px rgba(59,130,246,0.1); }
-.stat-number { font-size: 2rem; font-weight: 700; color: #f8fafc; }
-.stat-label { font-size: 0.875rem; color: #94a3b8; margin-top: 0.25rem; }
-"""
-            elif app_type == "ecommerce" or "shop" in app_type.lower():
-                guidelines += """
-═══ E-COMMERCE DESIGN ═══
+STATISTIKEN:
+class="grid grid-cols-2 md:grid-cols-4 gap-8 text-center py-20"
+Zahl: class="text-4xl md:text-5xl font-bold"
+Label: class="text-sm text-white/60 mt-2 uppercase tracking-wider"
 
-FARBEN:
-- Background: #fafafa
-- Cards: #ffffff, shadow
-- Primary: #111827
-- Accent: #4f46e5 (Indigo)
-- Price: #059669 (Green)
+GALERIE:
+class="grid grid-cols-1 md:grid-cols-3 gap-6"
+Bild-Container: class="relative overflow-hidden rounded-xl aspect-[4/3] img-zoom"
+Bild: class="w-full h-full object-cover"
 
-PRODUKT-KARTE CSS:
-.product-card {
-  background: white; border-radius: 16px; overflow: hidden;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
-  transition: all 0.3s ease;
-}
-.product-card:hover { transform: translateY(-4px); box-shadow: 0 12px 40px rgba(0,0,0,0.12); }
-.product-image { width: 100%; aspect-ratio: 1; object-fit: cover; }
-.product-info { padding: 1.5rem; }
-.product-price { font-size: 1.5rem; font-weight: 700; color: #059669; }
-"""
-            else:
-                guidelines += f"""
-═══ {app_type.upper()} DESIGN ═══
+TESTIMONIALS:
+class="bg-white/5 rounded-2xl p-8 border border-white/10"
+Sterne: ★★★★★ in {tmpl['accent_text']}
+Name: class="font-semibold mt-4"
 
-DESIGN-PRINZIPIEN:
-- Konsistente Farben (max 3-4 Farben)
-- 8px Grid-System für Abstände
-- Max 2 Schriftarten (Google Fonts!)
-- Hoher Kontrast für Lesbarkeit
-- Mobile-first responsive
+CTA SECTION:
+class="py-24 bg-gradient-to-r {tmpl['accent_gradient']}"
+H2: class="font-display text-4xl md:text-5xl font-bold text-white text-center"
 
-EMPFOHLENE TOOLS:
-- CSS Grid & Flexbox für Layout
-- CSS Custom Properties für Farben
-- CSS Transitions & Animations
-- Google Fonts: Inter (UI), Playfair Display (Elegant)
-- Unsplash für Bilder
+FOOTER:
+class="{tmpl['tailwind_bg']} border-t border-white/10 py-12"
 
-MINIMUM ANFORDERUNGEN:
-✓ Keine Default-Browser-Styles
-✓ Professionelle Farbpalette
-✓ Hover-Effekte auf interaktiven Elementen
-✓ Mindestens 1 Animation/Transition
-✓ Responsive Layout (min. Flexbox)
+═══ PFLICHT CUSTOM CSS (in <style>) ═══
+.reveal {{ opacity: 0; transform: translateY(40px); transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1); }}
+.reveal.active {{ opacity: 1; transform: translateY(0); }}
+.hover-lift {{ transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.4s ease; }}
+.hover-lift:hover {{ transform: translateY(-10px); box-shadow: 0 25px 60px rgba(0,0,0,0.25); }}
+.img-zoom img {{ transition: transform 0.6s ease; }}
+.img-zoom:hover img {{ transform: scale(1.08); }}
+nav.scrolled {{ background: rgba(10,10,10,0.95); backdrop-filter: blur(20px); padding-top: 0.75rem; padding-bottom: 0.75rem; box-shadow: 0 4px 30px rgba(0,0,0,0.3); }}
+
+═══ PFLICHT JAVASCRIPT ═══
+// IntersectionObserver for reveal animations
+const observer = new IntersectionObserver((entries) => {{
+  entries.forEach(e => {{ if(e.isIntersecting) e.target.classList.add('active'); }});
+}}, {{ threshold: 0.1 }});
+document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+
+// Nav scroll effect
+window.addEventListener('scroll', () => {{
+  document.querySelector('nav')?.classList.toggle('scrolled', window.scrollY > 50);
+}});
+
+// Smooth scroll
+document.querySelectorAll('a[href^="#"]').forEach(a => {{
+  a.addEventListener('click', e => {{
+    e.preventDefault();
+    document.querySelector(a.getAttribute('href'))?.scrollIntoView({{ behavior: 'smooth' }});
+  }});
+}});
+
+// Counter animation
+document.querySelectorAll('[data-count]').forEach(el => {{
+  new IntersectionObserver((entries) => {{
+    if(entries[0].isIntersecting) {{
+      const target = parseInt(el.dataset.count);
+      let current = 0;
+      const timer = setInterval(() => {{
+        current += target/60;
+        if(current >= target) {{ el.textContent = target + (el.dataset.suffix||''); clearInterval(timer); }}
+        else el.textContent = Math.floor(current) + (el.dataset.suffix||'');
+      }}, 16);
+    }}
+  }}, {{ threshold: 0.5 }}).observe(el);
+}});
 """
             
             result["output"] = guidelines
-            await add_log(project_id, "success", "Professionelle Design Guidelines erstellt", "planner")
+            await add_log(project_id, "success", f"Professionelle Design Guidelines erstellt ({tmpl['name']})", "planner")
             await update_agent(project_id, "planner", "completed", "Guidelines ready")
         
         elif tool_name == "advanced_test":
@@ -3133,18 +3246,27 @@ DATEIEN: {files_context if files_context else 'Keine Dateien'}
               📋 E1 WORKFLOW (PROVEN SUCCESSFUL AT APP.EMERGENT.SH)
 ═══════════════════════════════════════════════════════════════════════════════
 
-SCHRITT 1: VERSTEHEN & PLANEN (wie E1!)
+SCHRITT 1: VERSTEHEN & PLANEN (wie ein Senior-Entwickler!)
+
+🧠 **ZUERST: ANFORDERUNG TIEF ANALYSIEREN (think-Tool!):**
+Bevor du IRGENDETWAS tust, nutze das think-Tool und analysiere:
+1. Was will der User WIRKLICH? (nicht was er sagt, sondern was er braucht)
+2. Wer ist die ZIELGRUPPE? (B2B, B2C, Alter, Branche)
+3. Welche EMOTION soll die Seite auslösen?
+4. Ist es eine "Website" (→ statisch HTML) oder eine "App" (→ React/Framework)?
+5. Welche BRANCHE? (→ bestimmt Bilder, Farben, Texte)
+
+⚠️ **ENTSCHEIDUNGSMATRIX:**
+- "Website" / "Onepager" / "Landing Page" / "Homepage" → STATISCH (HTML + CSS + JS, KEIN npm!)
+- "App" / "Dashboard" / "CRUD" / "Login" / "Datenbank" → FRAMEWORK (React/Vue + Backend)
+- "Spiel" / "Game" → STATISCH (HTML + Canvas + JS)
+
 ├─ 1. TECHNOLOGIE-ENTSCHEIDUNGEN (EIGENSTÄNDIG!)
 │  ⚠️ KRITISCH: Frage NICHT nach Technologie-Wahl!
-│  ├─ Datenbank? → Wähle selbst die BESTE Option:
-│  │  ✓ MongoDB für Dokumente/Flexibilität
-│  │  ✓ PostgreSQL für Relationen/Komplexität  
-│  │  ✓ MySQL für einfache Webanwendungen
-│  ├─ Framework? → Wähle basierend auf Anforderung:
-│  │  ✓ React für interaktive UIs
-│  │  ✓ Vanilla JS für simple Apps
-│  │  ✓ Express/FastAPI für Backend
-│  └─ NIEMALS fragen: "MongoDB oder MySQL?" → WÄHLE SELBST!
+│  ├─ Website/Onepager? → IMMER statisches HTML + Tailwind CDN + JS
+│  ├─ Web App mit Daten? → React + Backend
+│  ├─ Spiel? → Canvas + Vanilla JS
+│  └─ NIEMALS npm für eine "Website" verwenden!
 ├─ 2. FRAGEN (ask_user) - NUR wenn WIRKLICH nötig!
 │  ✅ Frage nach: Design-Wünschen, Farben, spezifischen Features
 │  ❌ NICHT fragen: Technische Details, DB-Wahl, Framework
@@ -3175,162 +3297,208 @@ SCHRITT 2: IMPLEMENTIERUNG (wie E1!)
 ═══════════════════════════════════════════════════════════════════════════════
 
 ⛔⛔⛔ **NIEMALS PLAIN HTML OHNE STYLING ERSTELLEN!** ⛔⛔⛔
-❌ NIEMALS: <h1>Willkommen</h1><p>Text</p><ul><li>Item</li></ul>
-❌ NIEMALS: Standard-Browser-Styling (Times New Roman, weiß, keine Effekte)
-❌ NIEMALS: Websites ohne Bilder (wenn angemessen)
-❌ NIEMALS: Generische, langweilige Texte
 
-✅ IMMER: Professionelles, modernes CSS mit visuellen Effekten
-✅ IMMER: Google Fonts für schöne Typografie
-✅ IMMER: Farbverläufe, Schatten, Animationen
-✅ IMMER: Bilder von Unsplash (kostenlos, hochwertig)
+✅ IMMER: **Tailwind CSS via CDN** für alle Websites!
+✅ IMMER: Google Fonts (Inter + Playfair Display)
+✅ IMMER: Unsplash-Bilder (kostenlos, hochwertig)
+✅ IMMER: Scroll-Animationen, Hover-Effekte, Transitions
 ✅ IMMER: Marketing-orientierte, emotionale Texte
+✅ IMMER: Mindestens 8 Sections bei Landing Pages
+✅ IMMER: Responsive Design (mobile-first)
 
-🖼️ **BILDER - IMMER UNSPLASH NUTZEN:**
-Format: https://images.unsplash.com/photo-[ID]?w=1200&h=800&fit=crop
-Beispiele für verschiedene Branchen:
-- Autos/Werkstatt: https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?w=1200&h=800&fit=crop
-- Technologie: https://images.unsplash.com/photo-1518770660439-4636190af475?w=1200&h=800&fit=crop
-- Natur: https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=1200&h=800&fit=crop
-- Business: https://images.unsplash.com/photo-1497366216548-37526070297c?w=1200&h=800&fit=crop
-- Essen: https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=1200&h=800&fit=crop
-- Sport: https://images.unsplash.com/photo-1461896836934-bd45ba048078?w=1200&h=800&fit=crop
-- Gesundheit: https://images.unsplash.com/photo-1505751172876-fa1923c5c528?w=1200&h=800&fit=crop
-→ SUCHE passende Bilder auf unsplash.com via web_search wenn nötig!
+═══════════════════════════════════════════════════════════════════════════════
+              🧠 ANFORDERUNGSANALYSE (VOR DEM CODEN!)
+═══════════════════════════════════════════════════════════════════════════════
 
-🎨 **CSS-MINDESTSTANDARD FÜR ALLE WEBSITES:**
+BEVOR du eine einzige Zeile Code schreibst, DENKE wie ein Senior-Entwickler:
 
-```css
-/* PFLICHT: Google Fonts einbinden */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Playfair+Display:wght@400;500;600;700&display=swap');
+1. **WER ist die Zielgruppe?**
+   - Alter, Interessen, technisches Niveau
+   - → bestimmt Sprache, Design, Komplexität
 
-/* PFLICHT: CSS Reset & Basis */
-*, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0; }}
-html {{ scroll-behavior: smooth; }}
-body {{ font-family: 'Inter', sans-serif; line-height: 1.6; }}
+2. **WELCHE Emotion soll die Seite auslösen?**
+   - Vertrauen → Dunkel, seriös, Statistiken
+   - Begeisterung → Bold, Farben, Animationen
+   - Luxus → Schwarz/Gold, viel Weißraum, Serif-Fonts
+   - Energie → Rot/Orange, dynamische Effekte
 
-/* PFLICHT: Moderne Effekte nutzen */
-/* Glasmorphism */
-.glass {{ background: rgba(255,255,255,0.1); backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.15); }}
+3. **WELCHE Branche?** (bestimmt Bilder, Farben, Texte)
+   → Rufe get_design_guidelines() mit der Branche auf!
 
-/* Gradient Text */
-.gradient-text {{ background: linear-gradient(135deg, #667eea, #764ba2); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }}
+4. **WAS macht die Seite BESSER als Wettbewerber?**
+   - Unerwartete Details (Parallax, Micro-Interactions)
+   - Professionelle Texte (nicht generisch!)
+   - Echte Bilder (nicht Stock-Foto-Feeling)
 
-/* Smooth Hover */
-.hover-lift {{ transition: transform 0.3s ease, box-shadow 0.3s ease; }}
-.hover-lift:hover {{ transform: translateY(-5px); box-shadow: 0 20px 40px rgba(0,0,0,0.15); }}
+═══════════════════════════════════════════════════════════════════════════════
+              ⚡ TAILWIND CSS (PFLICHT FÜR ALLE WEBSITES!)
+═══════════════════════════════════════════════════════════════════════════════
 
-/* Scroll Animations */
-.fade-in {{ opacity: 0; transform: translateY(30px); animation: fadeInUp 0.8s ease forwards; }}
-@keyframes fadeInUp {{ to {{ opacity: 1; transform: translateY(0); }} }}
-```
+⚠️ **WICHTIGE REGEL FÜR WEBSITES/LANDING PAGES:**
+- IMMER statische HTML + CSS + JS Dateien erstellen!
+- NIEMALS React/Vue/Angular/npm für eine "Website" oder "Onepager" nutzen!
+- KEIN npm install, KEIN package.json, KEIN Build-Step für Websites!
+- Tailwind CDN = sofort verfügbar, kein Install nötig!
+- NUR bei expliziter Anfrage ("React App", "Vue App", "SPA") ein Framework nutzen!
+- "Website", "Onepager", "Landing Page", "Homepage" = IMMER statisches HTML!
 
-🏗️ **LANDING PAGE / ONEPAGER TEMPLATE:**
-Wenn der User eine Website/Onepager will, IMMER dieses Muster verwenden:
-
+PFLICHT HTML-HEAD für JEDE Website:
 ```html
-<!-- HERO SECTION: Vollbild, Bild-Hintergrund, Overlay, großer Text -->
-<section style="min-height:100vh; background:linear-gradient(rgba(0,0,0,0.6),rgba(0,0,0,0.8)), url('UNSPLASH_URL') center/cover; display:flex; align-items:center; justify-content:center; color:white; text-align:center;">
-  <div>
-    <h1 style="font-size:clamp(2rem,5vw,4.5rem); font-weight:800; letter-spacing:-0.02em;">HEADLINE</h1>
-    <p style="font-size:1.25rem; opacity:0.85; max-width:600px; margin:1rem auto;">Subheadline</p>
-    <a href="#" style="display:inline-block; padding:1rem 2.5rem; background:linear-gradient(135deg,#667eea,#764ba2); color:white; text-decoration:none; border-radius:50px; font-weight:600; margin-top:2rem; transition:transform 0.3s; box-shadow:0 10px 30px rgba(102,126,234,0.4);">CTA Button</a>
-  </div>
-</section>
-
-<!-- FEATURES: Grid mit Karten, Icons, Hover-Effekte -->
-<section style="padding:6rem 2rem; background:#0a0a0a; color:white;">
-  <h2 style="text-align:center; font-size:2.5rem; margin-bottom:3rem;">Unsere Leistungen</h2>
-  <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:2rem; max-width:1200px; margin:0 auto;">
-    <!-- Karten mit Hover-Effekt, Gradient-Border, Icon -->
-  </div>
-</section>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TITEL</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Playfair+Display:wght@400;500;600;700;900&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {{
+      theme: {{
+        extend: {{
+          fontFamily: {{
+            'sans': ['Inter', 'sans-serif'],
+            'display': ['Playfair Display', 'serif'],
+          }}
+        }}
+      }}
+    }}
+  </script>
+  <style>
+    /* Scroll Reveal */
+    .reveal {{ opacity: 0; transform: translateY(40px); transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1); }}
+    .reveal.active {{ opacity: 1; transform: translateY(0); }}
+    .reveal-delay-1 {{ transition-delay: 0.15s; }}
+    .reveal-delay-2 {{ transition-delay: 0.3s; }}
+    .reveal-delay-3 {{ transition-delay: 0.45s; }}
+    /* Hover Lift */
+    .hover-lift {{ transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.4s ease; }}
+    .hover-lift:hover {{ transform: translateY(-10px); box-shadow: 0 25px 60px rgba(0,0,0,0.25); }}
+    /* Image Zoom */
+    .img-zoom img {{ transition: transform 0.6s ease; }}
+    .img-zoom:hover img {{ transform: scale(1.08); }}
+    /* Gradient Text */
+    .gradient-text {{ background: linear-gradient(135deg, var(--accent-1), var(--accent-2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }}
+    html {{ scroll-behavior: smooth; }}
+  </style>
+</head>
 ```
 
-🎭 **FARBPALETTEN (wähle basierend auf Branche):**
-- **Elegant/Luxus:** #0a0a0a, #1a1a2e, #e2b04a (Gold), #ffffff
-- **Tech/Modern:** #0f172a, #1e293b, #3b82f6 (Blau), #60a5fa
-- **Natur/Gesund:** #064e3b, #065f46, #10b981 (Grün), #f0fdf4
-- **Kreativ/Bold:** #1e1b4b, #312e81, #8b5cf6 (Violett), #c4b5fd
-- **Warm/Einladend:** #1c1917, #44403c, #f59e0b (Amber), #fef3c7
-- **Werkstatt/Auto:** #0c0c0c, #1a1a1a, #ef4444 (Rot), #dc2626, #f97316 (Orange)
+🖼️ **BILDER - UNSPLASH (PFLICHT bei Websites!):**
+IMMER hochwertige Bilder verwenden. Suche via web_search("site:unsplash.com SUCHBEGRIFF") für passende Bilder!
+Standard-Bilder pro Branche (siehe get_design_guidelines für mehr):
+- Auto: https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?w=1920&h=1080&fit=crop
+- Tech: https://images.unsplash.com/photo-1518770660439-4636190af475?w=1920&h=1080&fit=crop
+- Natur: https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=1920&h=1080&fit=crop
+- Food: https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=1920&h=1080&fit=crop
+- Fitness: https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=1920&h=1080&fit=crop
 
-📝 **MARKETING-TEXTE RICHTLINIEN:**
-- NIEMALS generisch schreiben ("Willkommen auf unserer Website")
-- IMMER emotional und benefit-orientiert:
-  ❌ "Wir bieten Motortuning" 
-  ✅ "Entfesseln Sie das volle Potenzial Ihres Fahrzeugs — Leistungssteigerung auf Profi-Niveau"
-- IMMER Verben der Transformation nutzen: "Entfesseln", "Verwandeln", "Erleben", "Entdecken"
-- IMMER soziale Beweise einbauen: Zahlen, Jahre Erfahrung, zufriedene Kunden
-- CTAs: Konkret und handlungsorientiert ("Jetzt Beratung anfragen" statt "Kontakt")
+📝 **MARKETING-TEXTE:**
+- NIEMALS generisch ("Willkommen auf unserer Website")
+- IMMER emotional und benefit-orientiert
+- IMMER Zahlen/Social Proof (15+ Jahre, 2000+ Kunden)
+- IMMER handlungsorientierte CTAs ("Jetzt kostenlos beraten lassen")
+- IMMER Verben der Transformation: "Entfesseln", "Verwandeln", "Erleben"
 
-🔥 **PREMIUM-REFERENZ: So muss eine ONEPAGER-WEBSITE MINDESTENS aussehen!**
+📋 **PFLICHT-SECTIONS FÜR LANDING PAGES (MINIMUM 8!):**
+1. **Nav** - fixed, transparent→solid bei Scroll, Logo + Links
+2. **Hero** - Vollbild, bg-image mit Overlay, H1 + Subtext + CTA
+3. **Social Proof** - Statistik-Zahlen (3-4 Werte im Grid)
+4. **Über uns** - Text + Bild nebeneinander, Story der Firma
+5. **Leistungen** - 3-4 Karten im Grid, Icons/Emojis, Hover
+6. **Galerie** - 3 Bilder mit Hover-Zoom
+7. **Testimonials** - 2-3 Kundenzitate mit Sternebewertung
+8. **CTA** - Gradient-Hintergrund, großer Button, dringend
+9. **Footer** - Kontakt, Links, Social Icons, Copyright
 
-Die CSS-Datei MUSS mindestens 150 Zeilen haben für eine Website.
-Die HTML-Datei MUSS mindestens 6 Sections haben für eine Website.
-IMMER responsive (min. flexbox/grid).
-IMMER hover-Effekte auf Buttons/Karten.
-IMMER mindestens 3-4 Unsplash-Bilder bei Landing Pages.
-IMMER CSS-Animationen (fade-in, slide, hover-lift, parallax).
-IMMER Google Fonts (niemals Standard-Schriftarten).
-IMMER eine fixierte Navigation mit Scroll-Effekt.
-IMMER Statistik-Zahlen / Social Proof Sektion.
-
-📋 **PFLICHT-SECTIONS FÜR LANDING PAGES (MINIMUM!):**
-1. **Navigation** (fixed, transparent → solid bei Scroll)
-2. **Hero** (Vollbild, Unsplash-Hintergrund, Overlay, H1 + CTA)
-3. **Über uns / Story** (Text + Bild nebeneinander, Statistik-Zahlen)
-4. **Leistungen/Features** (3-4 Karten im Grid, Icons, Hover)
-5. **Galerie / Bildsektion** (2-3 Bilder, evtl. Overlay-Text)
-6. **Testimonials** (Kundenzitate mit Sternebewertung)
-7. **CTA-Sektion** (Gradient-Hintergrund, großer Button)
-8. **Footer** (Kontaktdaten, Links, Social Media Icons)
-
-🎯 **CSS PFLICHT-FEATURES (für jede Website!):**
-```css
-/* NAVIGATION (PFLICHT!) */
-nav {{
-  position: fixed; top: 0; width: 100%; z-index: 1000;
-  padding: 1.5rem 0; transition: all 0.4s ease;
-  background: transparent;
-}}
-nav.scrolled {{
-  background: rgba(10,10,10,0.95); backdrop-filter: blur(20px);
-  padding: 0.8rem 0; box-shadow: 0 4px 30px rgba(0,0,0,0.3);
-}}
-
-/* SCROLL-ANIMATIONEN (PFLICHT!) */
-.reveal {{ opacity: 0; transform: translateY(40px); transition: all 0.8s ease; }}
-.reveal.active {{ opacity: 1; transform: translateY(0); }}
-
-/* PARALLAX-EFFEKT */
-.parallax {{ background-attachment: fixed; background-size: cover; }}
-
-/* GRADIENT-SECTION */
-.gradient-bg {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }}
-
-/* STATISTIK-ZAHLEN */
-.stat {{ font-size: 3rem; font-weight: 800; letter-spacing: -0.03em; }}
-.stat-label {{ font-size: 0.875rem; text-transform: uppercase; letter-spacing: 0.1em; opacity: 0.7; }}
-```
-
-🎯 **JavaScript PFLICHT-FEATURES:**
+🎯 **PFLICHT JavaScript (script.js):**
 ```javascript
-// SCROLL REVEAL (PFLICHT für jede Website!)
+// Scroll Reveal (PFLICHT!)
 const reveals = document.querySelectorAll('.reveal');
+const observer = new IntersectionObserver((entries) => {{
+  entries.forEach(entry => {{
+    if (entry.isIntersecting) {{ entry.target.classList.add('active'); }}
+  }});
+}}, {{ threshold: 0.1 }});
+reveals.forEach(el => observer.observe(el));
+
+// Nav Scroll Effect (PFLICHT!)
+const nav = document.querySelector('nav');
 window.addEventListener('scroll', () => {{
-  reveals.forEach(el => {{
-    const top = el.getBoundingClientRect().top;
-    if (top < window.innerHeight - 100) el.classList.add('active');
+  nav.classList.toggle('scrolled', window.scrollY > 50);
+}});
+
+// Smooth Scroll für Anker-Links
+document.querySelectorAll('a[href^="#"]').forEach(a => {{
+  a.addEventListener('click', e => {{
+    e.preventDefault();
+    document.querySelector(a.getAttribute('href'))?.scrollIntoView({{ behavior: 'smooth' }});
   }});
 }});
 
-// NAVIGATION SCROLL-EFFEKT (PFLICHT!)
-window.addEventListener('scroll', () => {{
-  const nav = document.querySelector('nav');
-  if (window.scrollY > 50) nav.classList.add('scrolled');
-  else nav.classList.remove('scrolled');
-}});
+// Counter Animation für Statistik-Zahlen
+function animateCounters() {{
+  document.querySelectorAll('[data-count]').forEach(el => {{
+    const target = parseInt(el.dataset.count);
+    let current = 0;
+    const step = target / 60;
+    const timer = setInterval(() => {{
+      current += step;
+      if (current >= target) {{ el.textContent = target + (el.dataset.suffix || ''); clearInterval(timer); }}
+      else {{ el.textContent = Math.floor(current) + (el.dataset.suffix || ''); }}
+    }}, 16);
+  }});
+}}
+// Trigger counter animation when stats section is visible
+const statsSection = document.querySelector('.stats-section');
+if (statsSection) {{
+  new IntersectionObserver((entries) => {{
+    if (entries[0].isIntersecting) {{ animateCounters(); }}
+  }}, {{ threshold: 0.5 }}).observe(statsSection);
+}}
+```
+
+🔥 **TAILWIND ONEPAGER REFERENZ (MINIMUM-STANDARD!):**
+```html
+<!-- NAV -->
+<nav id="navbar" class="fixed top-0 w-full z-50 transition-all duration-500 py-5">
+  <div class="max-w-7xl mx-auto px-6 flex justify-between items-center">
+    <a href="#" class="font-display text-2xl font-bold text-white">Brand</a>
+    <div class="hidden md:flex gap-8">
+      <a href="#about" class="text-white/70 hover:text-white transition text-sm tracking-wide">Über uns</a>
+      <a href="#services" class="text-white/70 hover:text-white transition text-sm tracking-wide">Leistungen</a>
+      <a href="#contact" class="text-white/70 hover:text-white transition text-sm tracking-wide">Kontakt</a>
+    </div>
+  </div>
+</nav>
+
+<!-- HERO -->
+<section class="relative min-h-screen flex items-center justify-center text-white text-center"
+  style="background: linear-gradient(135deg, rgba(0,0,0,0.7), rgba(0,0,0,0.5)), url('UNSPLASH_URL') center/cover;">
+  <div class="max-w-4xl px-6">
+    <h1 class="font-display text-5xl md:text-7xl font-bold tracking-tight leading-tight">
+      Kraftvolle Headline
+    </h1>
+    <p class="text-lg md:text-xl text-white/80 mt-6 max-w-2xl mx-auto leading-relaxed">
+      Emotionaler Subtext der den Nutzen beschreibt.
+    </p>
+    <div class="mt-10 flex gap-4 justify-center">
+      <a href="#contact" class="px-8 py-4 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-full font-semibold hover:shadow-lg hover:shadow-indigo-500/30 transition-all hover:-translate-y-1">
+        Jetzt starten
+      </a>
+      <a href="#about" class="px-8 py-4 border-2 border-white/30 rounded-full font-semibold hover:bg-white/10 hover:border-white transition-all">
+        Mehr erfahren
+      </a>
+    </div>
+  </div>
+</section>
+
+<!-- STATS -->
+<section class="stats-section py-20 bg-gray-950 text-white">
+  <div class="max-w-5xl mx-auto px-6 grid grid-cols-2 md:grid-cols-4 gap-8 text-center">
+    <div class="reveal"><span data-count="15" data-suffix="+" class="text-4xl md:text-5xl font-bold">0</span><p class="text-sm text-white/60 mt-2 uppercase tracking-wider">Jahre Erfahrung</p></div>
+    <div class="reveal reveal-delay-1"><span data-count="2000" data-suffix="+" class="text-4xl md:text-5xl font-bold">0</span><p class="text-sm text-white/60 mt-2 uppercase tracking-wider">Zufriedene Kunden</p></div>
+  </div>
+</section>
 ```
 
 ═══════════════════════════════════════════════════════════════════════════════
@@ -3462,15 +3630,18 @@ BEISPIEL 2: Express API mit PostgreSQL
 7. browser_test(["GET /api/users", "POST /api/users"])
 ```
 
-BEISPIEL 3: Simple HTML-App (KEIN React) - PROFESSIONELL!
+BEISPIEL 3: Website / Onepager / Landing Page (KEIN React, KEIN npm!)
 ```
-1. get_design_guidelines(app_type="landing_page", style="elegant")  ← IMMER Design holen!
-2. create_file("index.html", {{...PROFESSIONELLES HTML mit Sections, Hero, Bildern...}})
-3. create_file("style.css", {{...MINDESTENS 100 Zeilen CSS mit Animationen, Hover, Responsive...}})
-4. create_file("script.js", {{...Smooth Scroll, Animationen, Interaktivität...}})
-5. browser_test(["Verify hero section", "Check animations", "Test responsiveness"])
+1. think("Analysiere: Zielgruppe, Emotion, Branche, benötigte Sections...")
+2. get_design_guidelines(app_type="landing_page", style="elegant")  ← IMMER ZUERST!
+3. create_file("index.html", {{...Tailwind CDN, 8+ Sections, Unsplash Bilder, Professionelle Texte...}})
+4. create_file("script.js", {{...Scroll Reveal, Nav Effect, Counter Animation, Smooth Scroll...}})
+5. browser_test(["Verify hero section and text", "Check scroll animation", "Test navigation links"])
+6. mark_complete(...)
 ```
-⚠️ NIEMALS plain HTML ohne Styling erstellen!
+⚠️ KEIN npm install, KEIN package.json, KEIN Build-Step für Websites!
+⚠️ Tailwind CDN im HTML-Head = sofort verfügbar!
+⚠️ style.css ist OPTIONAL wenn alles in Tailwind-Klassen ist!
 
 ❌ HÄUFIGE FEHLER - VERMEIDE DIESE:
 
