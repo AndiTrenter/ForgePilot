@@ -61,6 +61,11 @@ db = client[os.environ.get('DB_NAME', 'forgepilot')]
 settings_collection = db.settings
 update_collection = db.updates
 
+# ForgePilot Delivery Layer (Approval-Gates + Stage-Machine)
+from policy_engine import evaluate_action as policy_evaluate, needs_approval as policy_needs_approval, is_forbidden as policy_is_forbidden  # noqa: E402
+from deploy_orchestrator import DeliveryOrchestrator, DeliveryStage  # noqa: E402
+delivery_orchestrator = DeliveryOrchestrator(db)
+
 # Default Ollama URL - für Docker-Setups die Host-IP verwenden
 DEFAULT_OLLAMA_URL = os.environ.get('OLLAMA_URL', 'http://host.docker.internal:11434')
 
@@ -179,6 +184,48 @@ async def startup_event():
     logger.info(f"Starting ForgePilot API v{APP_VERSION}")
     await load_settings_from_db()
     await check_ollama_availability()
+    # Delivery-Result-Poller starten (finalisiert Jobs nach Deploy)
+    asyncio.create_task(_delivery_result_poller())
+
+
+async def _delivery_result_poller():
+    """Prüft regelmäßig, ob updater-service.sh einen Deploy fertiggestellt hat
+    und setzt den zugehörigen Delivery-Job auf DONE.
+    """
+    result_paths = [
+        Path("/app/workspaces/.deploy_result"),
+        Path("/mnt/user/appdata/forgepilot/.deploy_result"),
+    ]
+    while True:
+        try:
+            for p in result_paths:
+                if p.exists():
+                    try:
+                        data = json.loads(p.read_text())
+                    except Exception:
+                        data = {}
+                    job_id = data.get("job_id")
+                    if job_id:
+                        job = await delivery_orchestrator.get_job(job_id)
+                        if job and job["stage"] == DeliveryStage.DEPLOYING.value:
+                            await delivery_orchestrator.finalize_job(
+                                job_id,
+                                result={
+                                    "deployed": True,
+                                    "finished_at": data.get("finished_at"),
+                                    "project_id": data.get("project_id"),
+                                },
+                            )
+                            await delivery_orchestrator.append_log(
+                                job_id, "info", "Deploy durch updater-service abgeschlossen."
+                            )
+                    try:
+                        p.unlink()
+                    except Exception:
+                        pass
+        except Exception as e:
+            logger.warning(f"delivery_result_poller error: {e}")
+        await asyncio.sleep(5)
 
 # Workspace base directory
 WORKSPACES_DIR = Path('/app/workspaces')
@@ -3215,8 +3262,79 @@ async def run_autonomous_agent(project_id: str, workspace_path: Path, initial_me
     files_context = "\n".join([str(f.relative_to(workspace_path)) for f in workspace_path.rglob("*") if f.is_file() and not any(p in str(f) for p in ['.git', 'node_modules'])][:30])
     
     project = await db.projects.find_one({"id": project_id})
-    
-    system_prompt = f"""Du bist ForgePilot - ein ELITE-ENTWICKLER der GENAU WIE E1 bei app.emergent.sh arbeitet.
+
+    # Aktiven Delivery-Job laden (für Stage-Kontext im Prompt)
+    active_job = await delivery_orchestrator.get_active_job(project_id)
+    active_stage = active_job["stage"] if active_job else DeliveryStage.REQUIREMENTS.value
+    active_job_id = active_job["job_id"] if active_job else "(neuer Job)"
+
+    delivery_header = f"""═══════════════════════════════════════════════════════════════════════════════
+              🚚 ARIA ENGINEERING ORCHESTRATOR · DELIVERY MODE
+═══════════════════════════════════════════════════════════════════════════════
+
+Du bist Aria-Engineering-Orchestrator. Liefere Software wie ein Senior Developer
+in einem klar gestuften Prozess mit Freigabe-Gates.
+
+ARBEITSPROZESS (IMMER EINHALTEN):
+1) REQUIREMENTS: Kritische Rückfragen, sonst fortfahren.
+2) PLAN: Architektur, Risiken, Aufwand, Integrationen.
+3) BUILD: Schrittweise Implementierung.
+4) VERIFY: Tests, Lint, Sicherheits- und Integrationschecks.
+5) PREVIEW: Testbare Preview-URL + Test-Checklist + bekannte Einschränkungen.
+6) APPROVAL: EXPLIZIT nach Freigabe fragen – NIE selbst deployen.
+7) DEPLOY: Erst nach User-Freigabe ausrollen.
+8) POST-DEPLOY: Smoke-Tests, Monitoring-Hinweise, Rollback-Info.
+
+AKTUELLER JOB-STATUS:
+- job_id: {active_job_id}
+- aktuelle Stage: {active_stage}
+- Projekt: {project.get('name', 'Unbenannt') if project else 'N/A'}
+
+SICHERHEITSREGELN (POLICY ENGINE):
+- Destruktive Aktionen (wipe_database, delete_volume, disable_firewall) sind VERBOTEN.
+- Production-Deploy / DB-Migration / Reverse-Proxy-Change / mark_complete brauchen Freigabe.
+- Bei Unsicherheit: erst prüfen, dann handeln. Nie Credentials ausgeben.
+- Für Production-Deploy IMMER Change-Impact + Rollback-Plan mitliefern.
+
+QUALITÄTSREGELN:
+- Bevorzuge wartbare, testbare Lösungen.
+- Dokumentiere Schnittstellen und Konfiguration.
+- Bei größeren Features mind. 2 Lösungsvarianten mit Trade-offs.
+
+PFLICHT-AUSGABEFORMAT am ENDE JEDER Turn-Antwort:
+Füge genau einmal am Ende einen Meta-Block ein (wird vom Orchestrator geparst):
+
+---DELIVERY_META---
+{{"stage": "requirements|plan|build|verify|preview_ready|awaiting_approval|deploying|done|blocked",
+  "summary": "Kurzstatus (1-2 Sätze)",
+  "details": "Wichtige technische Punkte",
+  "risks": "Risiken + Gegenmaßnahmen",
+  "next_action": "Nächster konkreter Schritt",
+  "need_user_input": false,
+  "user_question": null,
+  "preview_url": null,
+  "preview_checks": [],
+  "needs_approval": false,
+  "deploy_plan": null,
+  "verification_report": null}}
+---END_DELIVERY_META---
+
+PREVIEW-PFLICHT:
+- Bei jedem Feature-Job MUSS vor `awaiting_approval` eine Preview-URL stehen.
+- Preview-Antwort muss enthalten: Link, 3-8 Test-Checks, bekannte Einschränkungen,
+  und die Frage „Freigabe für Produktion?".
+
+APPROVAL-SIGNAL:
+- Wenn der User „freigeben", „deploy", „go live", „ausrollen" oder „produktiv" sagt,
+  wechselt der Job auf `deploying`. Erst DANN echten Production-Deploy starten.
+- Wenn der User „noch nicht", „stopp" oder „abbrechen" sagt: Stage `rejected`.
+
+Sprache: Deutsch. Stil: präzise, professionell, transparent.
+
+═══════════════════════════════════════════════════════════════════════════════
+"""
+
+    system_prompt = delivery_header + f"""Du bist ForgePilot - ein ELITE-ENTWICKLER der GENAU WIE E1 bei app.emergent.sh arbeitet.
 
 ═══════════════════════════════════════════════════════════════════════════════
               🎯 DEINE IDENTITÄT: WIE E1 BEI APP.EMERGENT.SH
@@ -4572,7 +4690,56 @@ async def chat_autonomous(project_id: str, message: MessageCreate):
     
     user_msg = Message(project_id=project_id, content=message.content, role="user")
     await db.messages.insert_one(user_msg.model_dump())
-    
+
+    # --- DELIVERY LAYER: Job laden/erstellen + Approval-Keywords prüfen ---
+    active_job = await delivery_orchestrator.get_active_job(project_id)
+    if active_job is None:
+        job_id = await delivery_orchestrator.create_job(
+            project_id=project_id,
+            session_id=project_id,
+            user_id=project.get("owner") or project.get("user_id"),
+            request_text=message.content,
+        )
+        active_job = await delivery_orchestrator.get_job(job_id)
+
+    # Wenn Job auf Freigabe wartet, User-Nachricht nach Approval/Reject parsen
+    approval_signal = None
+    if active_job and active_job["stage"] == DeliveryStage.AWAITING_APPROVAL.value:
+        approval_signal = DeliveryOrchestrator.detect_approval(message.content)
+        if approval_signal is True:
+            try:
+                active_job = await delivery_orchestrator.set_approval(
+                    active_job["job_id"],
+                    approved=True,
+                    approved_by=project.get("owner") or "chat_user",
+                    reason="Chat-Freigabe",
+                )
+                await delivery_orchestrator.append_log(
+                    active_job["job_id"], "info", "User hat via Chat freigegeben."
+                )
+                # Deploy-Trigger schreiben (wird von updater-service.sh verarbeitet)
+                try:
+                    _write_deploy_trigger(project_id, active_job["job_id"])
+                    await delivery_orchestrator.append_log(
+                        active_job["job_id"], "info", "Deploy-Trigger erstellt."
+                    )
+                except Exception as e:
+                    await delivery_orchestrator.append_log(
+                        active_job["job_id"], "error", f"Deploy-Trigger-Fehler: {e}"
+                    )
+            except Exception as e:
+                logger.error(f"Approval-Flow-Fehler: {e}")
+        elif approval_signal is False:
+            try:
+                active_job = await delivery_orchestrator.set_approval(
+                    active_job["job_id"],
+                    approved=False,
+                    approved_by=project.get("owner") or "chat_user",
+                    reason=f"User-Ablehnung: {message.content[:200]}",
+                )
+            except Exception as e:
+                logger.error(f"Reject-Flow-Fehler: {e}")
+
     history = await db.messages.find({"project_id": project_id}, {"_id": 0}).sort("created_at", 1).to_list(20)
     messages_for_api = [{"role": msg["role"], "content": msg["content"]} for msg in history[-15:]]
     
@@ -4581,7 +4748,7 @@ async def chat_autonomous(project_id: str, message: MessageCreate):
         files_created = []
         
         await update_agent(project_id, "orchestrator", "running", "Starte autonome Entwicklung...")
-        yield f"data: {json.dumps({'agent': 'orchestrator', 'status': 'running', 'autonomous': True, 'provider': get_active_llm_provider()})}\n\n"
+        yield f"data: {json.dumps({'agent': 'orchestrator', 'status': 'running', 'autonomous': True, 'provider': get_active_llm_provider(), 'delivery_job_id': active_job.get('job_id') if active_job else None, 'delivery_stage': active_job.get('stage') if active_job else None})}\n\n"
         
         async for chunk in run_autonomous_agent(project_id, workspace_path, messages_for_api):
             yield chunk
@@ -4593,14 +4760,229 @@ async def chat_autonomous(project_id: str, message: MessageCreate):
                         full_response += data['content']
                 except:
                     pass
-        
-        if full_response:
-            ai_msg = Message(project_id=project_id, content=full_response, role="assistant", agent_type="orchestrator")
+
+        # Delivery-Meta aus Agent-Response extrahieren + Stage updaten
+        delivery_meta = _extract_delivery_meta(full_response)
+        clean_response = _strip_delivery_meta(full_response)
+        if delivery_meta and active_job:
+            try:
+                await _apply_delivery_meta(active_job["job_id"], delivery_meta)
+                # Aktuellen Stand des Jobs mitschicken an UI
+                updated = await delivery_orchestrator.get_job(active_job["job_id"])
+                yield f"data: {json.dumps({'delivery_update': True, 'job': updated})}\n\n"
+            except Exception as e:
+                logger.error(f"Delivery-Meta-Apply-Fehler: {e}")
+
+        if clean_response:
+            ai_msg = Message(project_id=project_id, content=clean_response, role="assistant", agent_type="orchestrator")
             await db.messages.insert_one(ai_msg.model_dump())
         
         await update_agent(project_id, "orchestrator", "completed", "Fertig")
     
     return StreamingResponse(generate(), media_type="text/event-stream")
+
+
+# ============== DELIVERY LAYER HELPERS ==============
+
+_DELIVERY_META_RE = re.compile(
+    r"---DELIVERY_META---\s*(?P<body>\{.*?\})\s*---END_DELIVERY_META---",
+    re.DOTALL,
+)
+
+
+def _extract_delivery_meta(text: str) -> Optional[dict]:
+    """Parst den letzten DELIVERY_META-Block aus dem Agent-Output."""
+    if not text:
+        return None
+    matches = list(_DELIVERY_META_RE.finditer(text))
+    if not matches:
+        return None
+    body = matches[-1].group("body")
+    try:
+        return json.loads(body)
+    except Exception as e:
+        logger.warning(f"DELIVERY_META JSON parse failed: {e}")
+        return None
+
+
+def _strip_delivery_meta(text: str) -> str:
+    if not text:
+        return text
+    return _DELIVERY_META_RE.sub("", text).strip()
+
+
+async def _apply_delivery_meta(job_id: str, meta: dict):
+    """Überträgt Felder aus dem DELIVERY_META in den Orchestrator-Zustand."""
+    stage_raw = (meta.get("stage") or "").strip().lower()
+    if not stage_raw:
+        return
+
+    try:
+        stage = DeliveryStage(stage_raw)
+    except ValueError:
+        logger.warning(f"Unbekannte stage '{stage_raw}' im DELIVERY_META, ignoriere.")
+        return
+
+    current = await delivery_orchestrator.get_job(job_id)
+    if not current:
+        return
+
+    update_meta = {
+        k: v for k, v in {
+            "summary": meta.get("summary"),
+            "deploy_plan": meta.get("deploy_plan"),
+            "verification_report": meta.get("verification_report"),
+        }.items() if v is not None
+    }
+
+    # Preview-Spezial: set_preview erwartet URL
+    preview_url = meta.get("preview_url")
+    preview_checks = meta.get("preview_checks") or []
+
+    needs_approval_flag = bool(meta.get("needs_approval"))
+
+    try:
+        # Sonderfälle, die eigene Methoden verlangen:
+        if stage == DeliveryStage.PREVIEW_READY and preview_url:
+            await delivery_orchestrator.set_preview(
+                job_id, preview_url, checks=preview_checks, summary=meta.get("summary"),
+            )
+        elif stage == DeliveryStage.AWAITING_APPROVAL:
+            await delivery_orchestrator.request_approval(
+                job_id, summary=meta.get("summary"), deploy_plan=meta.get("deploy_plan"),
+            )
+        elif stage == DeliveryStage.DONE:
+            await delivery_orchestrator.finalize_job(
+                job_id,
+                result=meta.get("verification_report") or {"summary": meta.get("summary")},
+            )
+        else:
+            # Normale Stage-Transition (policy-engine respektieren)
+            if current["stage"] != stage.value:
+                try:
+                    await delivery_orchestrator.update_stage(job_id, stage, meta=update_meta)
+                except ValueError as ve:
+                    # Invalid transition -> nur Metadaten updaten, Stage bleibt
+                    logger.info(f"Stage-Transition ignoriert: {ve}")
+                    if update_meta:
+                        await delivery_orchestrator.coll.update_one(
+                            {"job_id": job_id},
+                            {"$set": {**update_meta, "updated_at": datetime.now(timezone.utc).isoformat()}},
+                        )
+
+        # Agent sagt "brauche Freigabe" ohne Stage-Wechsel: markieren
+        if needs_approval_flag and stage != DeliveryStage.AWAITING_APPROVAL:
+            await delivery_orchestrator.coll.update_one(
+                {"job_id": job_id},
+                {"$set": {"approval_required": True}},
+            )
+    except Exception as e:
+        logger.error(f"_apply_delivery_meta Fehler: {e}")
+
+
+def _write_deploy_trigger(project_id: str, job_id: str):
+    """Schreibt Trigger-Datei, damit updater-service.sh den Deploy ausführt.
+
+    Funktioniert mit dem bestehenden Update-Trigger-Mechanismus (vgl.
+    /api/update/install). Datei-Pfad ist workspace-basiert, damit auch
+    Nicht-Unraid-Hosts funktionieren.
+    """
+    candidates = [
+        Path("/mnt/user/appdata/forgepilot/.deploy_trigger"),
+        WORKSPACES_DIR / ".deploy_trigger",
+    ]
+    payload = {
+        "project_id": project_id,
+        "job_id": job_id,
+        "requested_at": datetime.now(timezone.utc).isoformat(),
+        "action": "deploy_production",
+    }
+    written = False
+    for p in candidates:
+        try:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(json.dumps(payload, indent=2))
+            logger.info(f"Deploy trigger geschrieben: {p}")
+            written = True
+        except Exception as e:
+            logger.warning(f"Trigger {p} konnte nicht geschrieben werden: {e}")
+    if not written:
+        raise RuntimeError("Kein Trigger-Pfad beschreibbar.")
+
+
+# ============== DELIVERY JOB REST API ==============
+
+@api_router.get("/delivery/jobs/{project_id}")
+async def get_delivery_jobs(project_id: str):
+    """Liefert aktiven Job + Historie für ein Projekt."""
+    active = await delivery_orchestrator.get_active_job(project_id)
+    history = await delivery_orchestrator.list_jobs(project_id, limit=20)
+    return {"active": active, "history": history}
+
+
+@api_router.get("/delivery/job/{job_id}")
+async def get_delivery_job(job_id: str):
+    job = await delivery_orchestrator.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job nicht gefunden")
+    return job
+
+
+class ApprovalPayload(BaseModel):
+    approved_by: Optional[str] = "ui_user"
+    reason: Optional[str] = None
+
+
+@api_router.post("/delivery/jobs/{job_id}/approve")
+async def approve_delivery_job(job_id: str, payload: ApprovalPayload = Body(default=ApprovalPayload())):
+    """Explizite Freigabe per UI-Button -> Stage DEPLOYING + Trigger-File."""
+    job = await delivery_orchestrator.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job nicht gefunden")
+    if job["stage"] != DeliveryStage.AWAITING_APPROVAL.value:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Job ist in Stage '{job['stage']}' – Freigabe nur in 'awaiting_approval' möglich.",
+        )
+    try:
+        updated = await delivery_orchestrator.set_approval(
+            job_id,
+            approved=True,
+            approved_by=payload.approved_by or "ui_user",
+            reason=payload.reason or "UI-Freigabe",
+        )
+        try:
+            _write_deploy_trigger(job["project_id"], job_id)
+            await delivery_orchestrator.append_log(job_id, "info", "Deploy-Trigger erstellt (UI-Freigabe).")
+        except Exception as e:
+            await delivery_orchestrator.append_log(job_id, "error", f"Deploy-Trigger-Fehler: {e}")
+        return {"success": True, "job": updated}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@api_router.post("/delivery/jobs/{job_id}/reject")
+async def reject_delivery_job(job_id: str, payload: ApprovalPayload = Body(default=ApprovalPayload())):
+    job = await delivery_orchestrator.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job nicht gefunden")
+    try:
+        updated = await delivery_orchestrator.set_approval(
+            job_id,
+            approved=False,
+            approved_by=payload.approved_by or "ui_user",
+            reason=payload.reason or "UI-Ablehnung",
+        )
+        return {"success": True, "job": updated}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@api_router.post("/delivery/jobs/{job_id}/evaluate-action")
+async def evaluate_action_endpoint(job_id: str, action: str = Body(..., embed=True)):
+    """Policy-Check für Tools/Aktionen (z.B. vor Deploy)."""
+    decision = policy_evaluate(action)
+    return decision.to_dict()
 
 # ============== AGENTS ==============
 

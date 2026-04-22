@@ -15,7 +15,7 @@ import aiohttp
 import subprocess
 
 # Test Configuration
-BASE_URL = "http://localhost:8001"
+BASE_URL = "https://autonomous-build-8.preview.emergentagent.com"
 API_BASE = f"{BASE_URL}/api"
 
 class ForgePilotTester:
@@ -494,27 +494,498 @@ class ForgePilotTester:
             except Exception as e:
                 print(f"\n⚠ Cleanup error: {str(e)}")
     
+    def test_delivery_policy_engine(self):
+        """Test Policy Engine via REST endpoints"""
+        print("\n=== Testing Delivery Policy Engine ===")
+        
+        # Test AUTO_ALLOWED action
+        try:
+            response = self.session.post(
+                f"{API_BASE}/delivery/jobs/test-job-id/evaluate-action",
+                json={"action": "build_app"},
+                timeout=10
+            )
+            if response.status_code == 200:
+                data = response.json()
+                if (data.get("category") == "auto" and 
+                    data.get("allowed") is True and 
+                    data.get("requires_approval") is False):
+                    self.log_test("Policy Engine - AUTO", True, "build_app correctly categorized as auto")
+                else:
+                    self.log_test("Policy Engine - AUTO", False, f"Unexpected response: {data}")
+            else:
+                self.log_test("Policy Engine - AUTO", False, f"HTTP {response.status_code}")
+        except Exception as e:
+            self.log_test("Policy Engine - AUTO", False, f"Request failed: {str(e)}")
+        
+        # Test APPROVAL_REQUIRED action
+        try:
+            response = self.session.post(
+                f"{API_BASE}/delivery/jobs/test-job-id/evaluate-action",
+                json={"action": "deploy_production"},
+                timeout=10
+            )
+            if response.status_code == 200:
+                data = response.json()
+                if (data.get("category") == "approval" and 
+                    data.get("requires_approval") is True):
+                    self.log_test("Policy Engine - APPROVAL", True, "deploy_production correctly requires approval")
+                else:
+                    self.log_test("Policy Engine - APPROVAL", False, f"Unexpected response: {data}")
+            else:
+                self.log_test("Policy Engine - APPROVAL", False, f"HTTP {response.status_code}")
+        except Exception as e:
+            self.log_test("Policy Engine - APPROVAL", False, f"Request failed: {str(e)}")
+        
+        # Test FORBIDDEN action
+        try:
+            response = self.session.post(
+                f"{API_BASE}/delivery/jobs/test-job-id/evaluate-action",
+                json={"action": "wipe_database"},
+                timeout=10
+            )
+            if response.status_code == 200:
+                data = response.json()
+                if (data.get("category") == "forbidden" and 
+                    data.get("allowed") is False):
+                    self.log_test("Policy Engine - FORBIDDEN", True, "wipe_database correctly forbidden")
+                else:
+                    self.log_test("Policy Engine - FORBIDDEN", False, f"Unexpected response: {data}")
+            else:
+                self.log_test("Policy Engine - FORBIDDEN", False, f"HTTP {response.status_code}")
+        except Exception as e:
+            self.log_test("Policy Engine - FORBIDDEN", False, f"Request failed: {str(e)}")
+        
+        # Test UNKNOWN action (fail-closed)
+        try:
+            response = self.session.post(
+                f"{API_BASE}/delivery/jobs/test-job-id/evaluate-action",
+                json={"action": "some_unknown_xyz"},
+                timeout=10
+            )
+            if response.status_code == 200:
+                data = response.json()
+                if (data.get("category") == "unknown" and 
+                    data.get("requires_approval") is True):
+                    self.log_test("Policy Engine - UNKNOWN", True, "Unknown action correctly requires approval (fail-closed)")
+                else:
+                    self.log_test("Policy Engine - UNKNOWN", False, f"Unexpected response: {data}")
+            else:
+                self.log_test("Policy Engine - UNKNOWN", False, f"HTTP {response.status_code}")
+        except Exception as e:
+            self.log_test("Policy Engine - UNKNOWN", False, f"Request failed: {str(e)}")
+
+    def test_delivery_job_lifecycle(self):
+        """Test Delivery Job Lifecycle (End-to-End Happy Path)"""
+        print("\n=== Testing Delivery Job Lifecycle ===")
+        
+        # Step a) Create new project
+        project_data = {
+            "name": f"Delivery-Test-{uuid.uuid4().hex[:8]}",
+            "description": "E2E Test for Delivery Layer"
+        }
+        
+        try:
+            response = self.session.post(f"{API_BASE}/projects", json=project_data)
+            if response.status_code in [200, 201]:
+                project = response.json()
+                project_id = project.get("id")
+                self.log_test("Delivery Lifecycle - Create Project", True, f"Project created: {project_id}")
+            else:
+                self.log_test("Delivery Lifecycle - Create Project", False, f"HTTP {response.status_code}")
+                return
+        except Exception as e:
+            self.log_test("Delivery Lifecycle - Create Project", False, f"Request failed: {str(e)}")
+            return
+        
+        # Step b) Check initial delivery jobs state
+        try:
+            response = self.session.get(f"{API_BASE}/delivery/jobs/{project_id}")
+            if response.status_code == 200:
+                data = response.json()
+                if data.get("active") is None and data.get("history") == []:
+                    self.log_test("Delivery Lifecycle - Initial State", True, "No active job, empty history")
+                else:
+                    self.log_test("Delivery Lifecycle - Initial State", False, f"Unexpected state: {data}")
+            else:
+                self.log_test("Delivery Lifecycle - Initial State", False, f"HTTP {response.status_code}")
+        except Exception as e:
+            self.log_test("Delivery Lifecycle - Initial State", False, f"Request failed: {str(e)}")
+        
+        # Step c) Start chat to trigger job creation
+        chat_message = {
+            "content": "Baue eine simple Todo App",
+            "role": "user"
+        }
+        
+        job_id = None
+        try:
+            response = self.session.post(
+                f"{API_BASE}/projects/{project_id}/chat",
+                json=chat_message,
+                stream=True,
+                timeout=30
+            )
+            
+            if response.status_code == 200:
+                # Read first few SSE events to trigger job creation
+                events_count = 0
+                for line in response.iter_lines(decode_unicode=True):
+                    if line.startswith("data: "):
+                        try:
+                            data = json.loads(line[6:])
+                            events_count += 1
+                            
+                            # Look for delivery_update events
+                            if data.get("type") == "delivery_update":
+                                job_id = data.get("job_id")
+                                break
+                            
+                            # Stop after 30 seconds or reasonable number of events
+                            if events_count > 20:
+                                break
+                                
+                        except json.JSONDecodeError:
+                            continue
+                
+                self.log_test("Delivery Lifecycle - Chat Start", True, f"Chat started, events received: {events_count}")
+            else:
+                self.log_test("Delivery Lifecycle - Chat Start", False, f"HTTP {response.status_code}")
+        except Exception as e:
+            self.log_test("Delivery Lifecycle - Chat Start", False, f"Request failed: {str(e)}")
+        
+        # Step d) Check active job was created
+        try:
+            response = self.session.get(f"{API_BASE}/delivery/jobs/{project_id}")
+            if response.status_code == 200:
+                data = response.json()
+                active_job = data.get("active")
+                history = data.get("history", [])
+                
+                if active_job and active_job.get("stage") and active_job.get("job_id"):
+                    job_id = active_job.get("job_id")
+                    self.log_test("Delivery Lifecycle - Job Created", True, 
+                                f"Active job created: stage={active_job.get('stage')}, job_id={job_id}")
+                    
+                    if len(history) >= 1:
+                        self.log_test("Delivery Lifecycle - History", True, f"History has {len(history)} entries")
+                    else:
+                        self.log_test("Delivery Lifecycle - History", False, "History is empty")
+                else:
+                    self.log_test("Delivery Lifecycle - Job Created", False, f"No active job found: {data}")
+            else:
+                self.log_test("Delivery Lifecycle - Job Created", False, f"HTTP {response.status_code}")
+        except Exception as e:
+            self.log_test("Delivery Lifecycle - Job Created", False, f"Request failed: {str(e)}")
+        
+        # Step e) Get full job details
+        if job_id:
+            try:
+                response = self.session.get(f"{API_BASE}/delivery/job/{job_id}")
+                if response.status_code == 200:
+                    job_data = response.json()
+                    if (job_data.get("stage_history") and 
+                        job_data.get("logs") and
+                        job_data.get("job_id") == job_id):
+                        self.log_test("Delivery Lifecycle - Job Details", True, 
+                                    f"Full job details retrieved: stage={job_data.get('stage')}")
+                    else:
+                        self.log_test("Delivery Lifecycle - Job Details", False, f"Incomplete job data: {job_data}")
+                else:
+                    self.log_test("Delivery Lifecycle - Job Details", False, f"HTTP {response.status_code}")
+            except Exception as e:
+                self.log_test("Delivery Lifecycle - Job Details", False, f"Request failed: {str(e)}")
+        
+        # Cleanup
+        try:
+            self.session.delete(f"{API_BASE}/projects/{project_id}")
+        except:
+            pass
+        
+        return job_id
+
+    def test_approval_rest_flow(self):
+        """Test Approval REST Flow (409 when wrong stage)"""
+        print("\n=== Testing Approval REST Flow ===")
+        
+        # First create a job in wrong stage
+        project_data = {
+            "name": f"Approval-Test-{uuid.uuid4().hex[:8]}",
+            "description": "Approval flow test"
+        }
+        
+        project_id = None
+        job_id = None
+        
+        try:
+            # Create project
+            response = self.session.post(f"{API_BASE}/projects", json=project_data)
+            if response.status_code in [200, 201]:
+                project = response.json()
+                project_id = project.get("id")
+                
+                # Start chat to create job
+                chat_message = {"content": "Test job creation", "role": "user"}
+                response = self.session.post(
+                    f"{API_BASE}/projects/{project_id}/chat",
+                    json=chat_message,
+                    stream=True,
+                    timeout=15
+                )
+                
+                # Get job_id from delivery jobs
+                if response.status_code == 200:
+                    time.sleep(2)  # Wait for job creation
+                    response = self.session.get(f"{API_BASE}/delivery/jobs/{project_id}")
+                    if response.status_code == 200:
+                        data = response.json()
+                        active_job = data.get("active")
+                        if active_job:
+                            job_id = active_job.get("job_id")
+        except Exception as e:
+            self.log_test("Approval Flow - Setup", False, f"Setup failed: {str(e)}")
+            return
+        
+        if not job_id:
+            self.log_test("Approval Flow - Setup", False, "Could not create test job")
+            return
+        
+        # Test approval when NOT in awaiting_approval stage (should get 409)
+        try:
+            response = self.session.post(
+                f"{API_BASE}/delivery/jobs/{job_id}/approve",
+                json={"approved_by": "tester"},
+                timeout=10
+            )
+            
+            if response.status_code == 409:
+                response_data = response.json()
+                if "awaiting_approval" in response_data.get("detail", "").lower():
+                    self.log_test("Approval Flow - Wrong Stage", True, "Correctly returned 409 with awaiting_approval message")
+                else:
+                    self.log_test("Approval Flow - Wrong Stage", False, f"409 but wrong message: {response_data}")
+            else:
+                self.log_test("Approval Flow - Wrong Stage", False, f"Expected 409, got {response.status_code}")
+        except Exception as e:
+            self.log_test("Approval Flow - Wrong Stage", False, f"Request failed: {str(e)}")
+        
+        # Test approval with nonexistent job (should get 404)
+        try:
+            response = self.session.post(
+                f"{API_BASE}/delivery/jobs/nonexistent-job/approve",
+                json={"approved_by": "tester"},
+                timeout=10
+            )
+            
+            if response.status_code == 404:
+                self.log_test("Approval Flow - Nonexistent Job", True, "Correctly returned 404 for nonexistent job")
+            else:
+                self.log_test("Approval Flow - Nonexistent Job", False, f"Expected 404, got {response.status_code}")
+        except Exception as e:
+            self.log_test("Approval Flow - Nonexistent Job", False, f"Request failed: {str(e)}")
+        
+        # Cleanup
+        if project_id:
+            try:
+                self.session.delete(f"{API_BASE}/projects/{project_id}")
+            except:
+                pass
+
+    def test_regression_endpoints(self):
+        """Test Regression - existing endpoints must still work"""
+        print("\n=== Testing Regression Endpoints ===")
+        
+        endpoints_to_test = [
+            ("/health", "Health endpoint"),
+            ("/version", "Version endpoint"),
+            ("/", "Root API endpoint"),
+            ("/settings", "Settings endpoint"),
+            ("/llm/status", "LLM Status endpoint"),
+            ("/update/status", "Update Status endpoint")
+        ]
+        
+        for endpoint, name in endpoints_to_test:
+            try:
+                response = self.session.get(f"{API_BASE}{endpoint}", timeout=10)
+                if response.status_code == 200:
+                    data = response.json()
+                    # Basic validation that response has expected structure
+                    if isinstance(data, dict) and len(data) > 0:
+                        self.log_test(f"Regression - {name}", True, f"Endpoint working: {endpoint}")
+                    else:
+                        self.log_test(f"Regression - {name}", False, f"Empty or invalid response: {data}")
+                else:
+                    self.log_test(f"Regression - {name}", False, f"HTTP {response.status_code}")
+            except Exception as e:
+                self.log_test(f"Regression - {name}", False, f"Request failed: {str(e)}")
+        
+        # Test project CRUD operations
+        project_data = {
+            "name": f"Regression-Test-{uuid.uuid4().hex[:8]}",
+            "description": "Regression test project"
+        }
+        
+        project_id = None
+        try:
+            # Create project
+            response = self.session.post(f"{API_BASE}/projects", json=project_data)
+            if response.status_code in [200, 201]:
+                project = response.json()
+                project_id = project.get("id")
+                self.log_test("Regression - Create Project", True, f"Project created: {project_id}")
+                
+                # List projects
+                response = self.session.get(f"{API_BASE}/projects")
+                if response.status_code == 200:
+                    projects = response.json()
+                    if any(p.get("id") == project_id for p in projects):
+                        self.log_test("Regression - List Projects", True, "Project found in list")
+                    else:
+                        self.log_test("Regression - List Projects", False, "Project not found in list")
+                else:
+                    self.log_test("Regression - List Projects", False, f"HTTP {response.status_code}")
+                
+                # Get project messages
+                response = self.session.get(f"{API_BASE}/projects/{project_id}/messages")
+                if response.status_code == 200:
+                    self.log_test("Regression - Get Messages", True, "Messages endpoint working")
+                else:
+                    self.log_test("Regression - Get Messages", False, f"HTTP {response.status_code}")
+                
+                # Delete project
+                response = self.session.delete(f"{API_BASE}/projects/{project_id}")
+                if response.status_code in [200, 204]:
+                    self.log_test("Regression - Delete Project", True, "Project deleted successfully")
+                else:
+                    self.log_test("Regression - Delete Project", False, f"HTTP {response.status_code}")
+            else:
+                self.log_test("Regression - Create Project", False, f"HTTP {response.status_code}")
+        except Exception as e:
+            self.log_test("Regression - Project CRUD", False, f"Request failed: {str(e)}")
+
+    def test_chat_approval_keywords(self):
+        """Test Chat-Flow: Approval-Keyword-Detection"""
+        print("\n=== Testing Chat Approval Keywords ===")
+        
+        # Create project for testing
+        project_data = {
+            "name": f"Approval-Keywords-{uuid.uuid4().hex[:8]}",
+            "description": "Test approval keyword detection"
+        }
+        
+        project_id = None
+        job_id = None
+        
+        try:
+            # Create project
+            response = self.session.post(f"{API_BASE}/projects", json=project_data)
+            if response.status_code in [200, 201]:
+                project = response.json()
+                project_id = project.get("id")
+                
+                # User Message 1: Start job
+                chat_message = {"content": "Erstelle eine einfache Webseite", "role": "user"}
+                response = self.session.post(
+                    f"{API_BASE}/projects/{project_id}/chat",
+                    json=chat_message,
+                    stream=True,
+                    timeout=20
+                )
+                
+                if response.status_code == 200:
+                    # Wait for job creation
+                    time.sleep(3)
+                    
+                    # Get job_id
+                    response = self.session.get(f"{API_BASE}/delivery/jobs/{project_id}")
+                    if response.status_code == 200:
+                        data = response.json()
+                        active_job = data.get("active")
+                        if active_job:
+                            job_id = active_job.get("job_id")
+                            self.log_test("Approval Keywords - Job Creation", True, f"Job created: {job_id}")
+                        else:
+                            self.log_test("Approval Keywords - Job Creation", False, "No active job found")
+                            return
+                    else:
+                        self.log_test("Approval Keywords - Job Creation", False, "Could not get job status")
+                        return
+                else:
+                    self.log_test("Approval Keywords - Job Creation", False, f"Chat failed: HTTP {response.status_code}")
+                    return
+        except Exception as e:
+            self.log_test("Approval Keywords - Setup", False, f"Setup failed: {str(e)}")
+            return
+        
+        # Note: The review request mentions simulating awaiting_approval stage
+        # Since there's no direct endpoint to force a job into awaiting_approval stage,
+        # we'll skip this subtest as instructed
+        self.log_test("Approval Keywords - Stage Simulation", False, 
+                     "SKIPPED: No endpoint exists to force job into awaiting_approval stage")
+        
+        # Cleanup
+        if project_id:
+            try:
+                self.session.delete(f"{API_BASE}/projects/{project_id}")
+            except:
+                pass
+
+    def run_unit_integration_tests(self):
+        """Run Unit/Integration Tests"""
+        print("\n=== Running Unit/Integration Tests ===")
+        
+        try:
+            # Change to backend directory and run pytest
+            result = subprocess.run(
+                ["python", "-m", "pytest", 
+                 "tests/test_policy_engine.py", 
+                 "tests/test_deploy_orchestrator.py", 
+                 "tests/test_forgepilot_integration.py", 
+                 "-v"],
+                cwd="/app/backend",
+                capture_output=True,
+                text=True,
+                timeout=60
+            )
+            
+            if result.returncode == 0:
+                # Count passed tests
+                output_lines = result.stdout.split('\n')
+                passed_count = sum(1 for line in output_lines if " PASSED" in line)
+                self.log_test("Unit/Integration Tests", True, 
+                            f"All tests passed: {passed_count} tests", 
+                            result.stdout[-500:])  # Last 500 chars of output
+            else:
+                self.log_test("Unit/Integration Tests", False, 
+                            f"Tests failed with exit code {result.returncode}", 
+                            result.stdout + "\n" + result.stderr)
+        except subprocess.TimeoutExpired:
+            self.log_test("Unit/Integration Tests", False, "Tests timed out after 60 seconds")
+        except Exception as e:
+            self.log_test("Unit/Integration Tests", False, f"Failed to run tests: {str(e)}")
+
     def run_all_tests(self):
         """Run all tests"""
-        print("🚀 Starting ForgePilot Backend API Tests")
-        print("=" * 50)
+        print("🚀 Starting ForgePilot Delivery Layer Backend Tests")
+        print("=" * 60)
         
-        # Basic API health tests
-        self.test_basic_api_health()
+        # 1. Policy Engine via REST
+        self.test_delivery_policy_engine()
         
-        # Create test project
-        project_id = self.create_test_project()
+        # 2. Delivery Job Lifecycle (End-to-End Happy Path)
+        self.test_delivery_job_lifecycle()
         
-        if project_id:
-            # Test smart tools and features
-            self.test_sse_streaming(project_id)
-            self.test_smart_build_app_tool(project_id)
-            self.test_smart_install_package_tool(project_id)
-            self.test_clear_errors_tool(project_id)
-            self.test_smart_gate1_mark_complete(project_id)
-            
-            # Cleanup
-            self.cleanup_test_project(project_id)
+        # 3. Approval REST Flow (409 when wrong stage)
+        self.test_approval_rest_flow()
+        
+        # 4. Regression (existing endpoints must still work)
+        self.test_regression_endpoints()
+        
+        # 5. Chat-Flow: Approval-Keyword-Detection
+        self.test_chat_approval_keywords()
+        
+        # 6. Unit/Integration Tests
+        self.run_unit_integration_tests()
         
         # Print summary
         self.print_summary()
