@@ -446,6 +446,18 @@ frontend:
         agent: "main"
         comment: "nginx.conf proxies /api to forgepilot-backend:8001"
 
+  - task: "Archive View EmptyState Bug Fix"
+    implemented: true
+    working: true
+    file: "frontend/src/App.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "✅ TESTED: Archive functionality working perfectly. All 6 test scenarios passed: 1) Homepage loads correctly, 2) Projects visible with 'Archiv (0)' toggle button, 3) Clicking archive toggle shows proper EmptyState with 'Keine archivierten Projekte' text, Archive icon, and 'Zurück zu aktiven Projekten' button (data-testid='back-to-active-btn'), 4) NO black empty screen appears, 5) Back button successfully returns to active projects, 6) Header toggle button works for bidirectional navigation. User NEVER lands on empty black page without way back. EmptyState component renders correctly with all expected elements."
+
 metadata:
   created_by: "main_agent"
   version: "1.0"
@@ -472,3 +484,5 @@ agent_communication:
     message: "ForgePilot Autonomous Delivery v1 implementiert. Neue Komponenten: 1) backend/policy_engine.py mit AUTO/APPROVAL/FORBIDDEN Action-Sets + evaluate_action(). 2) backend/deploy_orchestrator.py mit DeliveryStage-Enum + validiertem Transitions-Graph + MongoDB-Collection delivery_jobs. 3) System-Prompt in run_autonomous_agent() um Engineering-Workflow-Header + DELIVERY_META-Output-Format ergänzt (bestehende Tool-Disziplin bleibt). 4) chat_autonomous() erstellt/lädt delivery_job, parst Meta-Block, erkennt Approval-Keywords (freigeben/deploy/go live/ausrollen/rejected via stopp/abbrechen/noch nicht). 5) REST-Endpoints: GET /api/delivery/jobs/{project_id}, GET /api/delivery/job/{job_id}, POST /api/delivery/jobs/{job_id}/approve, POST /api/delivery/jobs/{job_id}/reject, POST /api/delivery/jobs/{job_id}/evaluate-action. 6) Deploy-Trigger-File + updater-service.sh-Erweiterung + _delivery_result_poller() finalisiert Job automatisch. Alle 26 Unit+Integrations-Tests grün. Testing Agent: bitte High-Prio-Tasks (Policy Engine, Orchestrator, REST-Endpoints, Chat-Integration, Deploy-Trigger) E2E verifizieren - besonders den Happy-Path create_job -> awaiting_approval -> approve REST -> deploying und den Approval-Keyword-Flow via /api/projects/{id}/chat. Es gibt einen laufenden Backend unter localhost:8001."
   - agent: "testing"
     message: "🎯 DELIVERY LAYER TESTING COMPLETE: All 5 high-priority delivery tasks verified working. ✅ Policy Engine: REST endpoints correctly categorize actions (AUTO/APPROVAL/FORBIDDEN/UNKNOWN) with proper fail-closed behavior. ✅ Orchestrator: State machine working with MongoDB persistence, job lifecycle complete. ✅ REST Endpoints: Approval flow protection (409 on wrong stage), proper error handling (404 for nonexistent jobs). ✅ Chat Integration: Automatic job creation, SSE delivery_update events, meta-block parsing functional. ✅ Deploy Trigger: Auto-finalize system implemented and ready. ✅ Regression: All existing endpoints (health, version, settings, projects CRUD) still working. ✅ Unit Tests: All 26 tests pass (9 policy + 6 orchestrator + 11 integration). Backend URL https://autonomous-build-8.preview.emergentagent.com/api fully functional. Note: OpenAI quota exceeded during testing but delivery layer functionality confirmed working."
+  - agent: "testing"
+    message: "✅ ARCHIVE BUGFIX VERIFIED: Comprehensive 6-step test completed on http://localhost:3000. Archive functionality working perfectly - NO black empty screen bug. EmptyState component renders correctly with 'Keine archivierten Projekte' text, Archive icon, and 'Zurück zu aktiven Projekten' button. Both navigation methods work (back button + header toggle). User always has a clear way back to active projects. All test scenarios PASS."

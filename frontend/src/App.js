@@ -2108,7 +2108,7 @@ Beispiel: Erstelle eine moderne Todo-App mit dunklem Design. Die App soll Todos 
             </div>
           </div>
 
-          {(showArchived ? archivedProjects : recentProjects).length > 0 && (
+          {(recentProjects.length > 0 || archivedProjects.length > 0 || showArchived) && (
             <div className="w-full space-y-4">
               <div className="flex items-center justify-between">
                 <h3 className="text-sm font-semibold uppercase tracking-widest text-zinc-500">
@@ -2117,6 +2117,7 @@ Beispiel: Erstelle eine moderne Todo-App mit dunklem Design. Die App soll Todos 
                 <button
                   onClick={() => setShowArchived(!showArchived)}
                   className="flex items-center gap-2 px-3 py-1.5 text-sm text-zinc-400 hover:text-white hover:bg-zinc-800/50 rounded-md transition-colors"
+                  data-testid="toggle-archive-btn"
                 >
                   {showArchived ? (
                     <>
@@ -2131,8 +2132,24 @@ Beispiel: Erstelle eine moderne Todo-App mit dunklem Design. Die App soll Todos 
                   )}
                 </button>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                {(showArchived ? archivedProjects : recentProjects).map((project) => (
+
+              {showArchived && archivedProjects.length === 0 ? (
+                <div className="w-full flex flex-col items-center justify-center py-16 px-6 bg-zinc-900/50 border border-dashed border-zinc-800 rounded-lg text-center">
+                  <Archive size={32} className="text-zinc-600 mb-3" />
+                  <p className="text-zinc-300 font-medium mb-1">Keine archivierten Projekte</p>
+                  <p className="text-sm text-zinc-500 mb-5">Du hast noch nichts archiviert. Archivierte Projekte erscheinen hier.</p>
+                  <button
+                    onClick={() => setShowArchived(false)}
+                    className="flex items-center gap-2 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded-md transition-colors"
+                    data-testid="back-to-active-btn"
+                  >
+                    <Home size={14} />
+                    <span>Zurück zu aktiven Projekten</span>
+                  </button>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {(showArchived ? archivedProjects : recentProjects).map((project) => (
                   <div key={project.id} className="group relative flex items-center gap-3 p-4 bg-zinc-900 border border-zinc-800 rounded-lg hover:border-zinc-700 hover:bg-zinc-800/50 transition-all" data-testid={`project-${project.id}`}>
                     <button 
                       onClick={() => navigate(`/workspace/${project.id}`)} 
@@ -2205,7 +2222,8 @@ Beispiel: Erstelle eine moderne Todo-App mit dunklem Design. Die App soll Todos 
                     </div>
                   </div>
                 ))}
-              </div>
+                </div>
+              )}
             </div>
           )}
         </div>
