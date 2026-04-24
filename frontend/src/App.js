@@ -207,6 +207,9 @@ const ProjectSummary = ({ previewInfo, onPush, isPushing, onDeploy, isDeploying 
           <div>
             <h3 className="text-sm font-semibold text-emerald-300">Projekt fertig!</h3>
             <p className="text-xs text-zinc-400">{previewInfo.pending_commit_message}</p>
+            <p className="text-[11px] text-zinc-500 mt-0.5 italic">
+              💡 Du kannst im Chat weitere Änderungen anfragen — FP startet dann eine neue Iteration.
+            </p>
           </div>
         </div>
         

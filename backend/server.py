@@ -4691,9 +4691,49 @@ async def chat_autonomous(project_id: str, message: MessageCreate):
     user_msg = Message(project_id=project_id, content=message.content, role="user")
     await db.messages.insert_one(user_msg.model_dump())
 
+    # --- RE-OPEN-Logik: Wenn das Projekt als "fertig" markiert war und User erneut schreibt,
+    #     öffnen wir es wieder als weitere Iteration. Ohne das würde der Agent
+    #     in der History "✅ PROJEKT FERTIG!" sehen und neue Anforderungen ignorieren. ---
+    reopened = False
+    previous_status = project.get("status")
+    if previous_status in ("ready_for_push", "completed", "done"):
+        await db.projects.update_one(
+            {"id": project_id},
+            {
+                "$set": {
+                    "status": "iterating",
+                    "pending_commit_message": None,
+                },
+                "$inc": {"iteration_count": 1},
+            },
+        )
+        reopened = True
+        await add_log(
+            project_id,
+            "info",
+            f"🔄 Neue User-Anforderung nach Fertig-Status ('{previous_status}'). Projekt wird fortgeführt.",
+            "orchestrator",
+        )
+        # Eine System-Message in den History-Stream setzen, damit der Agent versteht:
+        # das Projekt war fertig, es gibt aber eine neue Anforderung.
+        iteration_note = Message(
+            project_id=project_id,
+            content=(
+                "⚡️ Neue Iteration: Das Projekt war bereits als fertig markiert, aber der "
+                "Nutzer hat eine neue Anforderung geschickt. Ignoriere vorherige 'Projekt "
+                "fertig'-Signale und arbeite die neue Anforderung vollständig um. Rufe "
+                "mark_complete erst wieder auf, wenn auch diese neue Anforderung "
+                "implementiert, getestet und verifiziert ist."
+            ),
+            role="system",
+            agent_type="orchestrator",
+        )
+        await db.messages.insert_one(iteration_note.model_dump())
+
     # --- DELIVERY LAYER: Job laden/erstellen + Approval-Keywords prüfen ---
     active_job = await delivery_orchestrator.get_active_job(project_id)
-    if active_job is None:
+    if active_job is None or reopened:
+        # Re-open: neuen Job anlegen, damit Stage-Machine sauber startet
         job_id = await delivery_orchestrator.create_job(
             project_id=project_id,
             session_id=project_id,
