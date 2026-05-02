@@ -112,6 +112,21 @@ user_problem_statement: |
   6. Deploy-Trigger-File für updater-service.sh + Auto-Finalize
 
 backend:
+  - task: "Senior Engineering Prompt + senior_code_review Gate (Phase 1+2)"
+    implemented: true
+    working: true
+    file: "backend/agents/senior_prompt.py, backend/tools/senior_review.py, backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Phase 1: System-Prompt in agents/senior_prompt.py ausgelagert mit Senior-Engineering-Doktrinen (SOLID, Type-Safety, Security, Error-Handling, Testing, Observability, a11y). Phase 2: Neues Tool senior_code_review in tools/senior_review.py mit harten Heuristiken (Secrets, Silent-Failures, eval/SQLi, XSS, any, TODO, console.log, überlange Funktionen). Tool in AGENT_TOOLS registriert (jetzt 35), tool_agent_map erweitert, Handler in execute_tool implementiert, Gate 4 in mark_complete: blockiert bei CRITICAL-Findings oder fehlendem Review. 16 Unit-Tests (test_senior_review.py) alle grün. Backend startet sauber. Bitte testen: (a) GET /api/ und /api/health weiterhin OK, (b) Tool-Registry enthält senior_code_review, (c) mark_complete ohne vorheriges senior_code_review blockiert mit Gate-4-Fail."
+      - working: true
+        agent: "testing"
+        comment: "✅ COMPREHENSIVE TESTING COMPLETE: All success criteria met. (1) Backend Health: GET /api/health returns status=healthy, mongodb=true, llm=true. GET /api/ returns version 3.0.4 with all fields. Backend logs clean, no import/syntax errors. (2) Unit Tests: All 16 tests in test_senior_review.py PASS (secrets detection, silent failures, eval/SQLi, XSS, any-types, TODO, console.log, function length). All 5 tests in test_autonomous_loop_v2.py::TestSystemPromptContent PASS. (3) Prompt Module: senior_prompt.py imports successfully, contains 'SENIOR ENGINEER MODE' and 'senior_code_review' text, generates 18288 char prompt. (4) Tool Registration: senior_code_review is 35th tool in AGENT_TOOLS (line 1078), mapped to 'reviewer' agent in tool_agent_map (line 1203), handler implemented (lines 3147-3200). (5) Gate 4: Implemented in mark_complete (lines 3257-3277), checks MongoDB senior_reviews collection, blocks if no review or CRITICAL findings present. (6) Functional Test: senior_code_review correctly detects hardcoded OpenAI key as CRITICAL finding, report.passed=False. Clean code passes review. All integration points working correctly."
+
   - task: "API Status Endpoint mit Version und LLM Info"
     implemented: true
     working: true
@@ -466,11 +481,7 @@ metadata:
 
 test_plan:
   current_focus:
-    - "Delivery Policy Engine"
-    - "Delivery Orchestrator State Machine"
-    - "Delivery REST Endpoints"
-    - "Delivery Chat Integration + Approval Keywords"
-    - "Deploy Trigger + Auto-Finalize"
+    - "Senior Engineering Prompt + senior_code_review Gate (Phase 1+2)"
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"

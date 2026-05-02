@@ -202,10 +202,18 @@ class TestSystemPromptContent:
     
     @pytest.fixture(scope="class")
     def server_code(self):
-        """Read server.py to verify system prompt"""
-        server_path = "/app/backend/server.py"
-        with open(server_path, 'r') as f:
-            return f.read()
+        """Read server.py + senior_prompt module to verify prompt content.
+
+        Der System-Prompt wurde in agents/senior_prompt.py ausgelagert,
+        daher werden beide Dateien zusammen gelesen."""
+        parts = []
+        for p in ("/app/backend/server.py", "/app/backend/agents/senior_prompt.py"):
+            try:
+                with open(p, "r") as f:
+                    parts.append(f.read())
+            except FileNotFoundError:
+                pass
+        return "\n".join(parts)
     
     def test_system_prompt_has_e1_identity(self, server_code):
         """Verify system prompt mentions E1 identity"""
@@ -214,7 +222,7 @@ class TestSystemPromptContent:
     
     def test_system_prompt_has_planning_phase(self, server_code):
         """Verify system prompt includes planning phase"""
-        assert "PLANEN" in server_code or "PLANNING" in server_code or "Planner" in server_code
+        assert "PLANEN" in server_code or "PLANNING" in server_code or "Planner" in server_code or "PLAN:" in server_code
         print("✓ System prompt includes planning phase")
     
     def test_system_prompt_has_testing_phase(self, server_code):
