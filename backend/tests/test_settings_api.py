@@ -6,7 +6,7 @@ import pytest
 import requests
 import os
 
-BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://autonomous-build-8.preview.emergentagent.com').rstrip('/')
+BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://ai-code-master-5.preview.emergentagent.com').rstrip('/')
 
 # Test credentials from review request
 TEST_OPENAI_KEY = "sk-test-key-12345"

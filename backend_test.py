@@ -15,7 +15,7 @@ import aiohttp
 import subprocess
 
 # Test Configuration
-BASE_URL = "https://autonomous-build-8.preview.emergentagent.com"
+BASE_URL = "https://ai-code-master-5.preview.emergentagent.com"
 API_BASE = f"{BASE_URL}/api"
 
 class ForgePilotTester:

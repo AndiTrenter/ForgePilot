@@ -319,7 +319,7 @@ ENVIRONMENT=production|development
 
 **Frontend (.env):**
 ```bash
-REACT_APP_BACKEND_URL=https://autonomous-build-8.preview.emergentagent.com
+REACT_APP_BACKEND_URL=https://ai-code-master-5.preview.emergentagent.com
 ```
 
 ### Feature Flags

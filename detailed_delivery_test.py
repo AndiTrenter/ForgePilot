@@ -10,7 +10,7 @@ import time
 import uuid
 
 # Test Configuration
-BASE_URL = "https://autonomous-build-8.preview.emergentagent.com"
+BASE_URL = "https://ai-code-master-5.preview.emergentagent.com"
 API_BASE = f"{BASE_URL}/api"
 
 def test_policy_engine_detailed():
