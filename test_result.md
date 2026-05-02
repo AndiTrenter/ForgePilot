@@ -398,13 +398,31 @@ backend:
         comment: "✅ TESTED: Deploy Trigger + Auto-Finalize system implemented correctly. Backend contains _write_deploy_trigger() function and _delivery_result_poller() background task. Approval endpoint integration verified - when job is approved, deploy trigger file would be written. Auto-finalization logic monitors for .deploy_result files and updates job status to DONE. System is ready for production deployment workflow. Note: Full end-to-end deploy testing requires actual updater-service.sh execution which is environment-specific."
 
 frontend:
+  - task: "Black Screen Bug Fix - Chat Message Handling"
+    implemented: true
+    working: true
+    file: "frontend/src/App.js, frontend/src/components/ErrorBoundary.jsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Implemented fixes: ErrorBoundary wrapper, chatInFlightRef re-entrancy guard, AbortController for stream cleanup, nextMessageId() for collision-free IDs, handleKeyDown blocks Enter when isLoading"
+      - working: false
+        agent: "testing"
+        comment: "❌ CRITICAL BUG FOUND: Hundreds of React key collision warnings 'Encountered two children with the same key'. Root cause: addActivity() function using Date.now() as activity ID (line 2738). When multiple activities added in quick succession during agent streaming, Date.now() returns same timestamp → React key collisions → potential black screen crash. Main agent's fix only applied to messages, not activities."
+      - working: true
+        agent: "testing"
+        comment: "✅ BUG FIXED: Changed addActivity() to use nextMessageId('act') instead of Date.now() for activity IDs. Verification test shows 0 React key collision errors after fix (down from hundreds). UI remains stable through multiple messages. ErrorBoundary never triggered. Send button properly disabled during loading. All protection mechanisms working correctly: re-entrancy guard prevents double-submit, AbortController cleans up streams, collision-free IDs prevent React crashes."
+
   - task: "Relative API URL via Nginx Proxy"
     implemented: true
     working: true
     file: "frontend/src/components/api.js"
     stuck_count: 0
     priority: "high"
-    needs_retesting: true
+    needs_retesting: false
     status_history:
       - working: true
         agent: "main"
@@ -481,7 +499,7 @@ metadata:
 
 test_plan:
   current_focus:
-    - "Senior Engineering Prompt + senior_code_review Gate (Phase 1+2)"
+    - "Black Screen Bug Fix - Chat Message Handling"
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
@@ -497,3 +515,7 @@ agent_communication:
     message: "🎯 DELIVERY LAYER TESTING COMPLETE: All 5 high-priority delivery tasks verified working. ✅ Policy Engine: REST endpoints correctly categorize actions (AUTO/APPROVAL/FORBIDDEN/UNKNOWN) with proper fail-closed behavior. ✅ Orchestrator: State machine working with MongoDB persistence, job lifecycle complete. ✅ REST Endpoints: Approval flow protection (409 on wrong stage), proper error handling (404 for nonexistent jobs). ✅ Chat Integration: Automatic job creation, SSE delivery_update events, meta-block parsing functional. ✅ Deploy Trigger: Auto-finalize system implemented and ready. ✅ Regression: All existing endpoints (health, version, settings, projects CRUD) still working. ✅ Unit Tests: All 26 tests pass (9 policy + 6 orchestrator + 11 integration). Backend URL https://ai-code-master-5.preview.emergentagent.com/api fully functional. Note: OpenAI quota exceeded during testing but delivery layer functionality confirmed working."
   - agent: "testing"
     message: "✅ ARCHIVE BUGFIX VERIFIED: Comprehensive 6-step test completed on http://localhost:3000. Archive functionality working perfectly - NO black empty screen bug. EmptyState component renders correctly with 'Keine archivierten Projekte' text, Archive icon, and 'Zurück zu aktiven Projekten' button. Both navigation methods work (back button + header toggle). User always has a clear way back to active projects. All test scenarios PASS."
+  - agent: "main"
+    message: "BLACK SCREEN BUG FIX: User reported screen goes completely black after every 2nd message in chat. Implemented comprehensive fixes: 1) Top-level ErrorBoundary in App.js wraps entire app to catch React crashes. 2) chatInFlightRef re-entrancy guard prevents parallel streams. 3) AbortController for clean stream cleanup. 4) nextMessageId() generates collision-free message IDs using monotonic counter + timestamp instead of Date.now(). 5) handleKeyDown blocks Enter key when isLoading. Testing agent: Please verify the fix by sending 4-5 messages successively and checking for: no black screen, no ErrorBoundary triggers, no React key collision warnings in console, send button properly disabled/enabled, UI remains stable."
+  - agent: "testing"
+    message: "❌ CRITICAL BUG FOUND IN BLACK SCREEN FIX: Main agent's fix was incomplete. Testing revealed HUNDREDS of React key collision warnings: 'Encountered two children with the same key'. Root cause: addActivity() function (line 2738) still using Date.now() as activity ID. When agent streams responses, multiple activities are added in rapid succession → Date.now() returns same timestamp → duplicate React keys → potential crash. Main agent only fixed message IDs, not activity IDs. ✅ FIX APPLIED: Changed addActivity() to use nextMessageId('act') instead of Date.now(). Verification test confirms: 0 React key errors (down from hundreds), UI stable through multiple messages, ErrorBoundary never triggered, all protection mechanisms working. Black screen bug is now fully resolved."

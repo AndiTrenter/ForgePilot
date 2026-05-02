@@ -2735,7 +2735,9 @@ const Workspace = () => {
   const addActivity = (agent, action, message, details = null) => {
     const now = new Date();
     const time = now.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    setAgentActivities(prev => [...prev.slice(-50), { id: Date.now(), agent, action, message, details, time }]);
+    // CRITICAL FIX: Use nextMessageId() statt Date.now() um Key-Kollisionen zu vermeiden.
+    // Date.now() liefert bei schnellen aufeinanderfolgenden Calls denselben Wert → React-Crash.
+    setAgentActivities(prev => [...prev.slice(-50), { id: nextMessageId("act"), agent, action, message, details, time }]);
     // Auto-scroll activity feed
     setTimeout(() => {
       if (activityContainerRef.current) {

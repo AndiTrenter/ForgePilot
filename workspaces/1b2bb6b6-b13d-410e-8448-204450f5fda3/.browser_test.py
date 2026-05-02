@@ -37,7 +37,7 @@ async def run_browser_test():
                 test_results["failed"].append("✗ Seite scheint leer zu sein")
             
             # Run test scenarios
-            scenarios = ["Open the HTML file and check if 'Hello, World!' is displayed prominently."]
+            scenarios = ["Open the HTML file and verify 'Hello, World!' is displayed properly.", "Check for logging outputs to ensure no bare exception handling is in place."]
             
             for i, scenario in enumerate(scenarios):
                 scenario_lower = scenario.lower()
@@ -91,7 +91,7 @@ async def run_browser_test():
                                         test_results["passed"].append(f"✓ Submit Button geklickt: {selector}")
                                         submitted = True
                                         break
-                                except Exception as e: logger.exception("Error occurred")
+                                except:
                                     pass
                             
                             if not submitted:
@@ -143,7 +143,7 @@ async def run_browser_test():
                                         # Only go back for non-anchor links
                                         if not link_href.startswith("#") and not link_href.startswith("mailto:"):
                                             await page.go_back()
-                                    except Exception as e: logger.exception("Error occurred")
+                                    except:
                                         test_results["failed"].append(f"✗ Navigation fehlgeschlagen: {link_text}")
                         else:
                             test_results["failed"].append("⚠️ Keine Navigation-Links gefunden")
