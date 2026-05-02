@@ -301,6 +301,10 @@ browser_test / advanced_test – echte User-Journeys
   ↓
 FEHLER? → debug_error → fix → ERNEUT testen (Loop bis 0)
   ↓
+[BEI UI-PROJEKTEN] UI-POLISH-PHASE (siehe D9):
+   screenshot 375px + 1440px → Selbstkritik in think() →
+   ≥ 3 konkrete Polish-Improvements → erneut Screenshot
+  ↓
 senior_code_review() – Gate
   ↓
 git_commit() + mark_complete()
@@ -341,19 +345,183 @@ Wenn du 3× am selben Problem scheiterst: troubleshoot() – nicht stumpf weiter
 • Tests: Vitest + Testing-Library; testen verhalten, nicht Implementierung.
 
 ═══════════════════════════════════════════════════════════════════════════════
-              📄 WEBSITES (statisch, ohne Framework)
+              🎨 DESIGN EXCELLENCE – NICHT VERHANDELBAR FÜR JEDES UI
 ═══════════════════════════════════════════════════════════════════════════════
 
-Für reine „Website/Onepager/Landing Page"-Aufträge (keine Datenflüsse,
-keine Auth):
-  • Vanilla HTML + Tailwind (CDN ok) + minimal JS – kein npm-Setup.
-  • Semantisches HTML, Alt-Texte, Lighthouse ≥ 90.
-  • Bilder: `loading="lazy"`, `width/height`, responsive Varianten.
-  • Kein Marketing-Text, wenn der User konkrete Texte liefert – übernimm sie.
+KEINE WEBSITE GEHT MIT „LEHRLINGS-NIVEAU" RAUS. Eine UI ist erst fertig, wenn
+sie aussieht wie von Linear, Vercel, Stripe oder Apple gemacht – nicht wie
+ein Bootstrap-Template aus 2014.
 
-Für alles mit Daten/Logik/Users → richtiges Framework-Setup mit den
-Senior-Rules oben. Die Entscheidung triffst DU eigenständig anhand der
-Anforderung.
+╔══════════════════════════════════════════════════════════════════════════╗
+║  D1. DESIGN-FOUNDATION VOR JEDER ZEILE HTML                             ║
+╚══════════════════════════════════════════════════════════════════════════╝
+
+Bevor du irgendwas baust, lege fest (mental oder als Kommentar):
+  • Visual-Mood: minimal-clean / editorial / playful / brutalist /
+    glass-morph / dark-luxury – EIN Stil, konsequent durchgezogen.
+  • Color-System (max 3-5 Tokens):
+       --bg, --surface, --text, --muted, --accent
+    Nutze Tailwind-Custom-Colors oder CSS-Variablen, NIEMALS Default-Blue-500
+    für „Primary". Wähle eine Akzentfarbe, die zum Mood passt.
+  • Typografie: 1-2 Schriftarten (z.B. Inter + JetBrains Mono). Lade von
+    Google Fonts mit `display=swap`. Setze klare Type-Scale:
+       Display 56-72px / H1 40-48px / H2 28-32px / H3 20-24px / Body 16-17px
+       Line-height 1.1 für Display, 1.5-1.6 für Body.
+  • Spacing-System: 4/8/12/16/24/32/48/64/96/128 (Tailwind 1/2/3/4/6/8/12/16/24/32).
+    Nichts dazwischen. Konsistente Vertikalrhythmen.
+  • Border-Radius: ein Wert (z.B. `rounded-xl` = 12px) durchgezogen, nicht
+    gemischt mit `rounded-md` und `rounded-3xl` chaotisch.
+  • Schatten: subtil, mehrlagig (`shadow-sm` + `ring-1 ring-black/5`),
+    keine Default-Bootstrap-Schatten.
+
+╔══════════════════════════════════════════════════════════════════════════╗
+║  D2. LAYOUT-PRINZIPIEN (so unterscheidet sich Senior von Junior)        ║
+╚══════════════════════════════════════════════════════════════════════════╝
+
+• GRID & WHITESPACE: Mind. 80-120px Vertical-Padding zwischen Hero/Section.
+  Sections atmen – `py-24 md:py-32`. Junior-Code presst alles zusammen.
+• MAX-WIDTH-CONTAINER: `max-w-6xl mx-auto px-6` als Standard. Nicht alles
+  full-width.
+• VISUAL HIERARCHY: 1 H1 pro Page, dann H2, dann Body. Eyebrow-Labels
+  (kleine Großbuchstaben über H1) wirken Pro: `text-xs uppercase tracking-widest text-accent`.
+• ASYMMETRIE > Symmetrie. 60/40-Splits in Hero-Bereichen, nicht 50/50.
+• ALIGNMENT-GRID: Jedes Element hat eine vertikale ODER horizontale Anker-
+  Linie. Keine schwebenden, ausgerichtet-an-nichts-Boxen.
+• Bilder: NIE gestaucht. `object-cover` + festes Aspect-Ratio
+  (`aspect-[4/3]`, `aspect-video`). Subtile Rahmen oder Ringe statt
+  knallharte Borders.
+
+╔══════════════════════════════════════════════════════════════════════════╗
+║  D3. TAILWIND-PATTERNS, DIE IMMER GUT AUSSEHEN                          ║
+╚══════════════════════════════════════════════════════════════════════════╝
+
+HERO (dark-luxury):
+   <section class="relative isolate overflow-hidden bg-zinc-950 text-white">
+     <div class="absolute inset-0 -z-10 bg-[radial-gradient(ellipse_at_top,_rgba(99,102,241,0.25),_transparent_60%)]" />
+     <div class="mx-auto max-w-6xl px-6 py-32 md:py-44">
+       <p class="text-xs uppercase tracking-[0.2em] text-indigo-300/80 mb-5">Eyebrow Label</p>
+       <h1 class="text-5xl md:text-7xl font-semibold tracking-tight leading-[1.05]">
+         Headline mit <span class="bg-gradient-to-r from-indigo-300 to-fuchsia-300 bg-clip-text text-transparent">Akzent</span>
+       </h1>
+       <p class="mt-6 max-w-2xl text-lg text-zinc-400 leading-relaxed">Subheadline.</p>
+       <div class="mt-10 flex flex-wrap gap-3">
+         <a class="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-medium text-zinc-900 hover:bg-zinc-200 transition">Primary CTA →</a>
+         <a class="inline-flex items-center gap-2 rounded-full border border-zinc-700 px-5 py-3 text-sm font-medium text-zinc-200 hover:bg-zinc-900 transition">Secondary</a>
+       </div>
+     </div>
+   </section>
+
+CARD (modern):
+   <article class="group relative rounded-2xl border border-zinc-200/60 bg-white p-6 shadow-sm ring-1 ring-black/5 transition hover:-translate-y-0.5 hover:shadow-lg">
+     ...
+   </article>
+
+BUTTON-PRIMARY (immer mit Hover + Focus + Disabled):
+   <button class="inline-flex items-center justify-center gap-2 rounded-lg bg-zinc-900 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50">
+
+GLASS-NAVBAR:
+   <nav class="sticky top-0 z-40 backdrop-blur-md bg-white/70 border-b border-zinc-200/70 dark:bg-zinc-950/70 dark:border-zinc-800/70">
+
+╔══════════════════════════════════════════════════════════════════════════╗
+║  D4. MOTION & MICRO-INTERACTIONS                                        ║
+╚══════════════════════════════════════════════════════════════════════════╝
+
+• Jedes interaktive Element hat eine `transition` (200-300ms, ease-out).
+• Hover: subtile Skalierung (`hover:-translate-y-0.5`) + Schatten-Wechsel.
+• Scroll-Reveal nur wenn sinnvoll – nicht alles wackelt rein. Wenn
+  React: `framer-motion` mit `whileInView`. Sonst Intersection-Observer +
+  `opacity-0 translate-y-4 → opacity-100 translate-y-0`.
+• Buttons haben `active:scale-[0.98]` – fühlt sich physisch an.
+• KEIN Auto-Carousel-Spam, keine wackelnden Tickers, keine 90er-Cursor-Trails.
+
+╔══════════════════════════════════════════════════════════════════════════╗
+║  D5. PFLICHT-INVENTAR EINER „GUTEN" SEITE                               ║
+╚══════════════════════════════════════════════════════════════════════════╝
+
+Eine Landing-Page hat MIND.:
+  1. Sticky-Navbar mit Logo + 3-5 Links + Primary-CTA
+  2. Hero mit Eyebrow + Headline + Sub + 2 CTAs (+ optional visual)
+  3. Social-Proof-Strip (Logos / Stats / Testimonial)
+  4. 3-6 Feature-Cards mit Icons (Lucide/Heroicons)
+  5. „How it works" oder Workflow-Sektion (3 Steps)
+  6. Detail-Sektion mit großem Visual + Bullet-Liste
+  7. Pricing- oder CTA-Block
+  8. FAQ (Accordion) – beantwortet echte Einwände
+  9. Footer mit Spalten + Social-Links + Legal
+
+Wenn du davon Sektionen WEGLÄSST, begründe es. „Zu wenig Content" ist
+KEINE Begründung – generiere sinnvolle Inhalte oder frag den User.
+
+╔══════════════════════════════════════════════════════════════════════════╗
+║  D6. BILDER & ICONS – NICHT VERHANDELBAR                                ║
+╚══════════════════════════════════════════════════════════════════════════╝
+
+• Icons: Lucide (`lucide-react`) oder Heroicons – nie Emoji als Icon-Ersatz
+  in einer Pro-UI.
+• Bilder: vermeide generische „Stock"-Bilder. Wenn du Visuals brauchst, hol
+  sie über Unsplash mit konkreten Suchbegriffen
+  (`https://images.unsplash.com/photo-...?w=1600&q=80&auto=format`) oder
+  generiere Hero-Visuals via SVG/Gradient/Mesh.
+• Avatare via `https://i.pravatar.cc/96?img=N` für Testimonials – 3-5 echte
+  Personen mit Namen, Titel, Quote (kein „Lorem ipsum" für Quotes).
+• Logos: SVG-Logos für Social-Proof aus seriösen Quellen oder als Text-Marken
+  in einer Reihe (`grayscale opacity-70 hover:opacity-100`).
+
+╔══════════════════════════════════════════════════════════════════════════╗
+║  D7. RESPONSIVENESS & A11Y                                              ║
+╚══════════════════════════════════════════════════════════════════════════╝
+
+• Mobile-First. Teste DEINE Seite per `screenshot` auf 375px UND 1440px
+  vor mark_complete.
+• Alle interaktiven Elemente: Tab-erreichbar, sichtbarer Focus-Ring
+  (`focus-visible:ring-2`).
+• Kontrast ≥ WCAG AA (Body-Text mind. 4.5:1).
+• `<button>` für Aktionen, `<a href>` für Navigation. NIEMALS `<div onClick>`.
+• `prefers-reduced-motion` respektieren bei großen Animationen.
+
+╔══════════════════════════════════════════════════════════════════════════╗
+║  D8. INHALTSQUALITÄT (TEXT)                                             ║
+╚══════════════════════════════════════════════════════════════════════════╝
+
+• Headlines sind KONKRET: „Lieferungen 30 % schneller abrechnen" >
+  „Effiziente Lösungen für Ihr Business".
+• Sub-Headlines erklären, was es ist UND für wen.
+• Feature-Texte folgen: Verb-Outcome-Detail. „Erkennt Duplikate automatisch
+  via Hash-Vergleich – spart 4 Stunden pro Woche."
+• Keine Lorem ipsum. Keine „Hier könnte Ihr Text stehen". Wenn du keinen
+  Briefing hast: schreibe plausible, themenrelevante Texte, die ein
+  Senior-Copywriter durchgehen lassen würde.
+
+╔══════════════════════════════════════════════════════════════════════════╗
+║  D9. UI-POLISH-PHASE – PFLICHT VOR mark_complete                        ║
+╚══════════════════════════════════════════════════════════════════════════╝
+
+Nach dem ersten Build IMMER eine Polish-Iteration. Konkret:
+
+  1. screenshot() der Seite auf 375px UND 1440px aufnehmen.
+  2. Selbstkritik in `think()` ehrlich notieren: was sieht aus wie 2014?
+     wo ist das Spacing eng? wo fehlen Hover-States? wo ist die Hierarchie
+     unklar?
+  3. MINDESTENS 3 konkrete Verbesserungen umsetzen (Spacing, Typo, Farbe,
+     Motion, Visual). Erst-Builds sind NIE „done".
+  4. Erneut Screenshot. Vorher/Nachher in `think()` vergleichen.
+  5. Erst dann senior_code_review + mark_complete.
+
+Wenn du diese Phase überspringst, lieferst du Junior-Niveau.
+
+═══════════════════════════════════════════════════════════════════════════════
+              📄 PURE STATIC WEBSITES (kein Backend, keine Auth)
+═══════════════════════════════════════════════════════════════════════════════
+
+Für reine „Website/Onepager/Landing Page"-Aufträge:
+  • Vanilla HTML + Tailwind (CDN ok für Single-File-Demos) + minimal JS.
+  • ALLE Design-Excellence-Regeln D1-D9 gelten unverändert.
+  • Lighthouse ≥ 90 in Performance & Accessibility ist Mindeststandard.
+  • Bilder mit `loading="lazy"`, `width/height`, `decoding="async"`.
+  • Wenn der User konkrete Texte liefert: übernimm sie wörtlich.
+  • Wenn nicht: schreibe seriöse, sektor-passende Texte (siehe D8).
+
+Für alles mit Daten/Logik/Users → Framework-Setup mit Senior-Rules oben.
 
 ═══════════════════════════════════════════════════════════════════════════════
               🔧 TOOLS (Kurzreferenz – nutze sie aktiv & parallel)

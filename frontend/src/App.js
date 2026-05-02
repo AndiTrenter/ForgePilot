@@ -3,6 +3,7 @@ import "@/App.css";
 import { BrowserRouter, Routes, Route, useNavigate, useParams } from "react-router-dom";
 import axios from "axios";
 import SettingsCenter from "./components/settings/SettingsCenter";
+import ErrorBoundary from "./components/ErrorBoundary";
 import { 
   Send, Loader2, GitBranch, FolderGit2, Play, RefreshCw, 
   Home, Settings, ChevronRight, FileCode, Terminal, 
@@ -2483,6 +2484,17 @@ const Workspace = () => {
   const activityContainerRef = useRef(null);
   const pollingRef = useRef(null);
   const iframeRef = useRef(null);
+  // Schutz gegen Doppel-Submit + parallele Streams (Ursache des "schwarzen Screen"-Bugs):
+  // - chatAbortRef:    AbortController für laufenden Chat-Stream
+  // - chatInFlightRef: Re-entrancy-Guard, falls isLoading-State noch nicht propagiert ist
+  // - msgIdRef:        Monotone, kollisionsfreie Message-IDs (statt Date.now())
+  const chatAbortRef = useRef(null);
+  const chatInFlightRef = useRef(false);
+  const msgIdRef = useRef(0);
+  const nextMessageId = (suffix = "") => {
+    msgIdRef.current += 1;
+    return `m${Date.now().toString(36)}-${msgIdRef.current}${suffix ? "-" + suffix : ""}`;
+  };
 
   // Initialize Speech Recognition
   useEffect(() => {
@@ -2891,8 +2903,23 @@ const Workspace = () => {
 
   const sendMessage = async (content) => {
     if (!content?.trim()) return;
-    
-    const userMessage = { id: Date.now().toString(), role: "user", content: content.trim(), created_at: new Date().toISOString() };
+    // Re-entrancy-Schutz: blockiert Doppel-Submit während ein Stream noch läuft.
+    // Verhindert den "schwarzen Screen", der bei parallelen Streams entstand
+    // (zwei sendMessage-Calls modifizierten denselben Message-State → React-Crash).
+    if (chatInFlightRef.current) {
+      return;
+    }
+    // Falls ein vorheriger Stream noch nicht sauber abgeräumt ist (z.B. Tab-Wechsel),
+    // brechen wir ihn ab, bevor wir den neuen starten.
+    if (chatAbortRef.current) {
+      try { chatAbortRef.current.abort(); } catch (_) { /* ignore */ }
+      chatAbortRef.current = null;
+    }
+    chatInFlightRef.current = true;
+    const abortCtrl = new AbortController();
+    chatAbortRef.current = abortCtrl;
+
+    const userMessage = { id: nextMessageId("u"), role: "user", content: content.trim(), created_at: new Date().toISOString() };
     setMessages(prev => [...prev, userMessage]);
     setInputValue("");
     setIsLoading(true);
@@ -2901,18 +2928,20 @@ const Workspace = () => {
     
     addActivity('orchestrator', 'thinking', 'Starte autonome Entwicklung...', 'Analysiere Anfrage');
 
+    const aiMessageId = nextMessageId("ai");
+    let filesCreated = [];
+
     try {
       const response = await fetch(`${API}/projects/${projectId}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ project_id: projectId, content: content.trim() }),
+        signal: abortCtrl.signal,
       });
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let aiContent = "";
-      let aiMessageId = Date.now().toString() + "_ai";
-      let filesCreated = [];
       
       setMessages(prev => [...prev, { id: aiMessageId, role: "assistant", content: "", created_at: new Date().toISOString(), agent_type: "orchestrator" }]);
 
@@ -2988,7 +3017,7 @@ const Workspace = () => {
                 setMessages(prev => [
                   ...prev,
                   {
-                    id: Date.now(),
+                    id: nextMessageId("q"),
                     role: 'assistant',
                     content: `❓ **FRAGE VOM AGENT:**\n\n${questionText}\n\n_Bitte beantworten Sie die Frage im Chat-Feld._`,
                     timestamp: new Date().toISOString()
@@ -3031,9 +3060,23 @@ const Workspace = () => {
         }
       }
     } catch (e) {
-      console.error("Chat error:", e);
-      addActivity('orchestrator', 'error_found', 'Verbindungsfehler', e.message);
+      // AbortError ist gewollt (z.B. Stream wurde absichtlich abgebrochen) – kein User-Fehler.
+      if (e?.name !== "AbortError") {
+        console.error("Chat error:", e);
+        addActivity('orchestrator', 'error_found', 'Verbindungsfehler', e?.message || String(e));
+        // Sichtbares Feedback im Chat, statt stiller Hänger:
+        setMessages(prev => prev.map(msg =>
+          msg.id === aiMessageId
+            ? { ...msg, content: (msg.content || "") + `\n\n_⚠️ Verbindungsfehler: ${e?.message || e}. Bitte erneut senden._` }
+            : msg
+        ));
+      }
     } finally {
+      // Guard und Abort-Controller IMMER freigeben, sonst bleibt der Send-Button gesperrt.
+      chatInFlightRef.current = false;
+      if (chatAbortRef.current === abortCtrl) {
+        chatAbortRef.current = null;
+      }
       setIsLoading(false);
       setAgentProgress({ iteration: 0, maxIterations: 20, currentTool: null, isAutonomous: false });
     }
@@ -3042,6 +3085,9 @@ const Workspace = () => {
   const handleKeyDown = (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
+      // Wichtig: blockt Doppel-Submit per Enter, während ein Stream läuft.
+      // Der Send-Button hat diesen Schutz bereits via `disabled={isLoading}`.
+      if (isLoading || chatInFlightRef.current) return;
       sendMessage(inputValue);
     }
   };
@@ -3341,13 +3387,15 @@ const Workspace = () => {
           )}
 
           <div ref={chatContainerRef} className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0" data-testid="chat-message-list">
-            {messages.map((message) => <ChatMessage key={message.id} message={message} />)}
-            {isLoading && messages[messages.length - 1]?.role === "user" && (
-              <div className="flex items-center gap-2 text-zinc-500">
-                <Loader2 size={16} className="animate-spin" />
-                <span className="text-sm">Agent arbeitet autonom...</span>
-              </div>
-            )}
+            <ErrorBoundary label="Chat">
+              {messages.map((message) => <ChatMessage key={message.id} message={message} />)}
+              {isLoading && messages[messages.length - 1]?.role === "user" && (
+                <div className="flex items-center gap-2 text-zinc-500">
+                  <Loader2 size={16} className="animate-spin" />
+                  <span className="text-sm">Agent arbeitet autonom...</span>
+                </div>
+              )}
+            </ErrorBoundary>
           </div>
 
           <div className="px-3 py-1 border-t border-zinc-800/50 shrink-0">
@@ -3629,12 +3677,18 @@ const Workspace = () => {
 function App() {
   return (
     <div className="App">
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<StartScreen />} />
-          <Route path="/workspace/:projectId" element={<Workspace />} />
-        </Routes>
-      </BrowserRouter>
+      <ErrorBoundary label="App-Root">
+        <BrowserRouter>
+          <Routes>
+            <Route path="/" element={<StartScreen />} />
+            <Route path="/workspace/:projectId" element={
+              <ErrorBoundary label="Workspace">
+                <Workspace />
+              </ErrorBoundary>
+            } />
+          </Routes>
+        </BrowserRouter>
+      </ErrorBoundary>
     </div>
   );
 }
